@@ -161,5 +161,28 @@ new_download = r'''  try {
 if old_download in text:
     text = text.replace(old_download, new_download, 1)
 
+# Allow the UI to proceed to the download engine even when yt-dlp metadata lookup is unavailable.
+old_info = "    const { stdout } = await runYtDlp(['-j', '--no-playlist', url]);\n    const info = JSON.parse(stdout.trim().split('\\n')[0]);\n    return res.json({ title: info.title, thumbnail: info.thumbnail, duration: info.duration, uploader: info.uploader, extractor: info.extractor, contentType: 'video', availableHeights: [...new Set((info.formats || []).map(format => format.height).filter(Boolean))].sort((a, b) => b - a) });"
+new_info = r'''    try {
+      const { stdout } = await runYtDlp(['-j', '--no-playlist', url]);
+      const info = JSON.parse(stdout.trim().split('\n')[0]);
+      return res.json({ title: info.title, thumbnail: info.thumbnail, duration: info.duration, uploader: info.uploader, extractor: info.extractor, contentType: 'video', availableHeights: [...new Set((info.formats || []).map(format => format.height).filter(Boolean))].sort((a, b) => b - a) });
+    } catch (primaryError) {
+      // Metadata is helpful but should not prevent the actual download route
+      // from trying its independent fallback engine.
+      diagLog('metadata_degraded', { urlHost: safeHost(url), primary: 'yt-dlp', detail: compactDetail(primaryError.message, 900) });
+      return res.json({
+        title: `Media from ${safeHost(url)}`,
+        thumbnail: null,
+        duration: null,
+        uploader: null,
+        extractor: 'metadata-unavailable',
+        contentType: 'video',
+        availableHeights: []
+      });
+    }'''
+if old_info in text:
+    text = text.replace(old_info, new_info, 1)
+
 path.write_text(text, encoding="utf-8")
 print("Universal downloader diagnostics patch applied")
