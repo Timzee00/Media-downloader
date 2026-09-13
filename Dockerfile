@@ -21,14 +21,15 @@ RUN npm install --omit=dev
 
 COPY downloader/ ./
 
-# Use normal Python patch scripts instead of a deeply quoted Docker one-liner.
+# Use normal Python patch scripts instead of deeply quoted Docker one-liners.
 RUN python3 patch-tiktok.py \
     && python3 patch-runtime.py \
     && python3 patch-stage-ui.py \
     && python3 patch-preview.py \
     && python3 patch-photo-audio.py \
+    && python3 patch-tiktok-special.py \
     && node --check server.js \
-    && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py patch-preview.py patch-photo-audio.py
+    && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py patch-preview.py patch-photo-audio.py patch-tiktok-special.py
 
 RUN mkdir -p /data/downloads
 
