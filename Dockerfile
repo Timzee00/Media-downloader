@@ -25,8 +25,9 @@ COPY downloader/ ./
 RUN python3 patch-tiktok.py \
     && python3 patch-runtime.py \
     && python3 patch-stage-ui.py \
+    && python3 patch-preview.py \
     && node --check server.js \
-    && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py
+    && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py patch-preview.py
 
 RUN mkdir -p /data/downloads
 
