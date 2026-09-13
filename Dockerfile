@@ -16,23 +16,25 @@ RUN pip3 install --no-cache-dir --break-system-packages -U "yt-dlp[default,curl-
     && pip3 install --no-cache-dir --break-system-packages -U "bgutil-ytdlp-pot-provider==2.0.0" \
     && yt-dlp --version
 
-# yt-dlp enables Deno by default, but this container already has Node 22.
-# Explicitly enable Node so YouTube's EJS challenge solver can run.
+# Keep Node/EJS enabled and let current yt-dlp choose its normal YouTube clients.
+# web_embedded is an additional fallback that does not require a GVS PO token,
+# while the BgUtils provider remains available for clients that do require one.
+# Do NOT force mweb globally: current YouTube behavior can return LOGIN_REQUIRED
+# or intermittent 403s for mweb from datacenter IPs even with a valid PO token.
 RUN printf '%s\n' \
     '--js-runtimes node' \
     '--extractor-retries 3' \
     '--retries 3' \
     '--fragment-retries 3' \
     '--file-access-retries 3' \
-    '--extractor-args "youtube:player_client=mweb"' \
+    '--extractor-args "youtube:player_client=default,web_embedded"' \
     '--extractor-args "youtubepot-bgutilhttp:base_url=http://127.0.0.1:4416"' \
     > /etc/yt-dlp.conf \
     && node --version \
     && yt-dlp --version
 
 # Build the current BgUtils PO-token provider. The HTTP provider is kept running
-# beside the downloader so yt-dlp can request fresh per-video tokens without
-# spawning a Node process for every yt-dlp invocation.
+# beside the downloader so yt-dlp can request fresh per-video tokens when needed.
 RUN git clone --depth 1 --branch 2.0.0 https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git /opt/bgutil-ytdlp-pot-provider \
     && cd /opt/bgutil-ytdlp-pot-provider/server \
     && npm ci --no-audit --no-fund \
