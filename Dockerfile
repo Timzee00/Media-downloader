@@ -26,8 +26,9 @@ RUN python3 patch-tiktok.py \
     && python3 patch-runtime.py \
     && python3 patch-stage-ui.py \
     && python3 patch-preview.py \
+    && python3 patch-photo-audio.py \
     && node --check server.js \
-    && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py patch-preview.py
+    && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py patch-preview.py patch-photo-audio.py
 
 RUN mkdir -p /data/downloads
 
