@@ -14,7 +14,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN pip3 install --no-cache-dir --break-system-packages -U "yt-dlp[default,curl-cffi]" \
     && pip3 install --no-cache-dir --break-system-packages -U "bgutil-ytdlp-pot-provider==2.0.0" \
-    && yt-dlp --version
+    && pip3 install --no-cache-dir --break-system-packages -U you-get gallery-dl \
+    && yt-dlp --version \
+    && you-get --version \
+    && gallery-dl --version
 
 # Keep Node/EJS enabled and let current yt-dlp choose its normal YouTube clients.
 # web_embedded is an additional fallback that does not require a GVS PO token,
@@ -47,7 +50,8 @@ RUN npm install --omit=dev
 
 COPY downloader/ ./
 
-# Use normal Python patch scripts instead of deeply quoted Docker one-liners.
+# Apply the existing platform/UI compatibility patches and the universal
+# diagnostics/fallback layer. Fail the image build when any patch or syntax check fails.
 RUN python3 patch-tiktok.py \
     && python3 patch-runtime.py \
     && python3 patch-stage-ui.py \
@@ -57,15 +61,17 @@ RUN python3 patch-tiktok.py \
     && python3 patch-tiktok-photo-disable.py \
     && python3 patch-audio-preview.py \
     && python3 patch-history-api.py \
+    && python3 patch-diagnostics.py \
     && node --check server.js \
-    && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py patch-preview.py patch-photo-audio.py patch-tiktok-special.py patch-tiktok-photo-disable.py patch-audio-preview.py patch-history-api.py
+    && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py patch-preview.py patch-photo-audio.py patch-tiktok-special.py patch-tiktok-photo-disable.py patch-audio-preview.py patch-history-api.py patch-diagnostics.py
 
 RUN mkdir -p /data/downloads
 
 ENV PORT=3000
 EXPOSE 3000
 
-# Run the POT provider on loopback and the downloader as the main process.
-# Render only exposes the app's PORT; the token provider stays private inside
-# the container and is reachable at 127.0.0.1:4416.
-CMD ["sh", "-c", "node /opt/bgutil-ytdlp-pot-provider/server/build/main.js >/tmp/bgutil-provider.log 2>&1 & exec node server.js"]
+# Render uses this Dockerfile's CMD (dockerCommand is intentionally empty).
+# Start the private BgUtils provider first, verify its /ping endpoint, then
+# hand the foreground process to the downloader. Provider stdout/stderr stays
+# visible in Render logs for troubleshooting.
+CMD ["sh", "-c", "set -eu; echo '[bgutil] starting provider on 127.0.0.1:4416'; node /opt/bgutil-ytdlp-pot-provider/server/build/main.js & provider_pid=$!; trap 'kill $provider_pid 2>/dev/null || true' TERM INT EXIT; ready=0; for i in $(seq 1 30); do if curl -fsS http://127.0.0.1:4416/ping >/dev/null 2>&1; then echo '[bgutil] provider ready on 127.0.0.1:4416'; ready=1; break; fi; if ! kill -0 $provider_pid 2>/dev/null; then echo '[bgutil] provider exited during startup' >&2; wait $provider_pid || true; exit 1; fi; sleep 1; done; if [ \"$ready\" -ne 1 ]; then echo '[bgutil] provider did not become ready within 30s' >&2; exit 1; fi; exec node server.js"]
