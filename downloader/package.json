@@ -1,7 +1,7 @@
 {
   "name": "media-downloader",
   "version": "1.0.0",
-  "description": "Video + audio downloader service (yt-dlp powered) for Render",
+  "description": "Video + audio downloader service with yt-dlp and diagnostic tooling",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
