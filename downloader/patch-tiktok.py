@@ -5,9 +5,9 @@ s = p.read_text(encoding='utf-8')
 
 if 'function extractTikTokCanonicalUrl(' not in s:
     start_marker = 'async function fetchTikTokPage(url) {'
-    end_marker = '\n}\n\nasync function resolveTikTokPhoto'
+    next_marker = 'async function resolveTikTokPhoto'
     start = s.find(start_marker)
-    end = s.find(end_marker, start)
+    end = s.find(next_marker, start + len(start_marker)) if start >= 0 else -1
     if start < 0 or end < 0:
         raise SystemExit('Could not locate fetchTikTokPage')
 
@@ -48,9 +48,11 @@ async function fetchTikTokPage(url) {
   } finally {
     clearTimeout(timer);
   }
-}'''
+}
 
-    s = s[:start] + replacement + s[end + 2:]
+'''
+
+    s = s[:start] + replacement + s[end:]
 
 p.write_text(s, encoding='utf-8')
 print('TikTok resolver patch applied')
