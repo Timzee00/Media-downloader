@@ -18,19 +18,25 @@ RUN pip3 install --no-cache-dir --break-system-packages -U "yt-dlp[default,curl-
 
 # yt-dlp enables Deno by default, but this container already has Node 22.
 # Explicitly enable Node so YouTube's EJS challenge solver can run.
-RUN printf '%s\n' '--js-runtimes node' > /etc/yt-dlp.conf \
+RUN printf '%s\n' \
+    '--js-runtimes node' \
+    '--extractor-retries 3' \
+    '--retries 3' \
+    '--fragment-retries 3' \
+    '--file-access-retries 3' \
+    '--extractor-args "youtube:player_client=mweb"' \
+    '--extractor-args "youtubepot-bgutilhttp:base_url=http://127.0.0.1:4416"' \
+    > /etc/yt-dlp.conf \
     && node --version \
     && yt-dlp --version
 
-# Install the matching BgUtils PO-token generation script. YouTube increasingly
-# requires Proof-of-Origin tokens for some clients and may otherwise return
-# "Sign in to confirm you're not a bot" / HTTP 403 from server IPs.
+# Build the current BgUtils PO-token provider. The HTTP provider is kept running
+# beside the downloader so yt-dlp can request fresh per-video tokens without
+# spawning a Node process for every yt-dlp invocation.
 RUN git clone --depth 1 --branch 2.0.0 https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git /opt/bgutil-ytdlp-pot-provider \
     && cd /opt/bgutil-ytdlp-pot-provider/server \
-    && npm ci --omit=dev --no-audit --no-fund \
     && npm ci --no-audit --no-fund \
-    && npx tsc \
-    && printf '%s\n' '--extractor-args "youtubepot-bgutilscript:script_path=/opt/bgutil-ytdlp-pot-provider/server/build/generate_once.js"' >> /etc/yt-dlp.conf
+    && npx tsc
 
 WORKDIR /app
 
@@ -57,4 +63,7 @@ RUN mkdir -p /data/downloads
 ENV PORT=3000
 EXPOSE 3000
 
-CMD ["node", "server.js"]
+# Run the POT provider on loopback and the downloader as the main process.
+# Render only exposes the app's PORT; the token provider stays private inside
+# the container and is reachable at 127.0.0.1:4416.
+CMD ["sh", "-c", "node /opt/bgutil-ytdlp-pot-provider/server/build/main.js >/tmp/bgutil-provider.log 2>&1 & exec node server.js"]
