@@ -16,40 +16,54 @@ server.write_text(s, encoding='utf-8')
 h = html.read_text(encoding='utf-8')
 
 state_marker = "const typeSelect=$('#typeSelect'),qualitySelect=$('#qualitySelect'),urlInput=$('#urlInput'),detectedBox=$('#detectedBox');"
-state_add = state_marker + "\nlet lastInfoData=null;"
-if state_marker not in h:
-    raise SystemExit('Frontend state marker not found')
-h = h.replace(state_marker, state_add, 1)
+if "let lastInfoData=null;" not in h:
+    if state_marker not in h:
+        raise SystemExit('Frontend state marker not found')
+    h = h.replace(state_marker, state_marker + "\nlet lastInfoData=null;", 1)
 
 old_change = "typeSelect.addEventListener('change',()=>{qualitySelect.style.display=typeSelect.value==='audio'?'none':'';});"
 new_change = "typeSelect.addEventListener('change',()=>{qualitySelect.style.display=typeSelect.value==='audio'?'none':''; updatePreviewVisibility();});"
-if old_change not in h:
-    raise SystemExit('Type change handler not found')
-h = h.replace(old_change, new_change, 1)
+if old_change in h:
+    h = h.replace(old_change, new_change, 1)
 
-clear_old = "clearTimeout(infoDebounce); detectedContentType='video'; detectedBox.classList.add('hidden'); clearPreview();"
-clear_new = "clearTimeout(infoDebounce); detectedContentType='video'; lastInfoData=null; detectedBox.classList.add('hidden'); clearPreview();"
-if clear_old not in h:
-    raise SystemExit('Preview reset target not found')
-h = h.replace(clear_old, clear_new, 1)
+if "lastInfoData=null; detectedBox.classList.add('hidden'); clearPreview();" not in h:
+    h = h.replace("clearTimeout(infoDebounce); detectedContentType='video'; detectedBox.classList.add('hidden'); clearPreview();", "clearTimeout(infoDebounce); detectedContentType='video'; lastInfoData=null; detectedBox.classList.add('hidden'); clearPreview();", 1)
+else:
+    h = h.replace("clearTimeout(infoDebounce); detectedContentType='video'; detectedBox.classList.add('hidden'); clearPreview();", "clearTimeout(infoDebounce); detectedContentType='video'; lastInfoData=null; detectedBox.classList.add('hidden'); clearPreview();", 1)
 
 old_info = "const data=await res.json();\n      detectedContentType=data.contentType||'video';"
-new_info = "const data=await res.json();\n      lastInfoData=data;\n      detectedContentType=data.contentType||'video';"
-if old_info not in h:
+new_info = "const data=await res.json();\n      lastInfoData=data;\n      detectedContentType=data.contentType||'video';\n      if(detectedContentType==='audio'){\n        clearPreview();\n        typeSelect.value='audio';\n        typeSelect.disabled=true;\n        qualitySelect.style.display='none';\n        detectedBox.textContent=`Audio detected — ${data.title||'Audio track'}. No video preview is needed.`;\n        detectedBox.classList.remove('hidden');\n        return;\n      }"
+if old_info in h:
+    h = h.replace(old_info, new_info, 1)
+else:
     raise SystemExit('Info assignment target not found')
-h = h.replace(old_info, new_info, 1)
 
-old_branch = "}else{\n        showPreview(data);\n        typeSelect.disabled=false;\n        qualitySelect.style.display=typeSelect.value==='audio'?'none':'';\n        if(data.availableHeights&&data.availableHeights.length)renderQualityOptions(data.availableHeights);\n      }"
-new_branch = "}else if(detectedContentType==='audio'){\n        clearPreview();\n        typeSelect.value='audio'; typeSelect.disabled=true; qualitySelect.style.display='none';\n        detectedBox.textContent=`Audio detected — ${data.title||'Audio track'}. No video preview is needed.`;\n        detectedBox.classList.remove('hidden');\n      }else{\n        typeSelect.disabled=false;\n        qualitySelect.style.display=typeSelect.value==='audio'?'none':'';\n        updatePreviewVisibility();\n        if(data.availableHeights&&data.availableHeights.length)renderQualityOptions(data.availableHeights);\n      }"
-if old_branch not in h:
-    raise SystemExit('Frontend content-type branch not found')
-h = h.replace(old_branch, new_branch, 1)
+if "function updatePreviewVisibility()" not in h:
+    preview_end = " }"
+    marker = "function showPreview(data){"
+    start = h.find(marker)
+    if start < 0:
+        raise SystemExit('showPreview function not found')
+    brace = h.find('{', start)
+    depth = 0
+    end = -1
+    for i in range(brace, len(h)):
+        if h[i] == '{': depth += 1
+        elif h[i] == '}':
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+    if end < 0:
+        raise SystemExit('Could not locate end of showPreview function')
+    helper = "\nfunction updatePreviewVisibility(){ if(!lastInfoData || lastInfoData.contentType!=='video' || typeSelect.value!=='video'){ clearPreview(); return; } showPreview(lastInfoData); }"
+    h = h[:end] + helper + h[end:]
 
-preview_marker = "function showPreview(data){ if(!data?.previewUrl){ clearPreview(); return; } previewTitle.textContent=data.title||'Video preview'; previewVideo.src=data.previewUrl; previewBox.classList.remove('hidden'); previewVideo.load(); }"
-preview_add = preview_marker + "\nfunction updatePreviewVisibility(){ if(!lastInfoData || lastInfoData.contentType!=='video' || typeSelect.value!=='video'){ clearPreview(); return; } showPreview(lastInfoData); }"
-if preview_marker not in h:
-    raise SystemExit('showPreview function not found')
-h = h.replace(preview_marker, preview_add, 1)
+# The TikTok photo branch already clears the preview. For normal video, explicitly
+# render the thumbnail preview after the metadata response succeeds.
+video_branch_marker = "}else{\n        typeSelect.disabled=false;"
+if video_branch_marker in h:
+    h = h.replace(video_branch_marker, "}else{\n        showPreview(data);\n        typeSelect.disabled=false;", 1)
 
 html.write_text(h, encoding='utf-8')
-print('audio-only detection and preview rules patched')
+print('audio-only detection and thumbnail preview rules patched')
