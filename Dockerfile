@@ -30,8 +30,9 @@ RUN python3 patch-tiktok.py \
     && python3 patch-tiktok-special.py \
     && python3 patch-tiktok-photo-disable.py \
     && python3 patch-audio-preview.py \
+    && python3 patch-history-api.py \
     && node --check server.js \
-    && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py patch-preview.py patch-photo-audio.py patch-tiktok-special.py patch-tiktok-photo-disable.py patch-audio-preview.py
+    && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py patch-preview.py patch-photo-audio.py patch-tiktok-special.py patch-tiktok-photo-disable.py patch-audio-preview.py patch-history-api.py
 
 RUN mkdir -p /data/downloads
 
