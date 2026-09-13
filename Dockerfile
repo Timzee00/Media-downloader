@@ -1,7 +1,8 @@
-FROM node:20-slim
+FROM node:22-slim
 
 # yt-dlp needs Python; ffmpeg is required for merging video+audio and audio extraction.
 # curl_cffi gives yt-dlp browser impersonation support required by some sites such as TikTok.
+# Node 22 is also required by current yt-dlp-ejs releases for YouTube challenge solving.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
@@ -11,8 +12,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip3 install --no-cache-dir --break-system-packages -U "yt-dlp[default,curl-cffi]" \
-    && yt-dlp --version \
-    && yt-dlp --list-impersonate-targets
+    && yt-dlp --version
+
+# yt-dlp enables Deno by default, but this container already has Node 22.
+# Explicitly enable Node so YouTube's EJS challenge solver can run.
+RUN printf '%s\n' '--js-runtimes node' > /etc/yt-dlp.conf \
+    && node --version \
+    && yt-dlp --version
 
 WORKDIR /app
 
