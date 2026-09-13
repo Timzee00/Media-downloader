@@ -14,7 +14,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN pip3 install --no-cache-dir --break-system-packages -U "yt-dlp[default,curl-cffi]" \
     && pip3 install --no-cache-dir --break-system-packages -U "bgutil-ytdlp-pot-provider==2.0.0" \
-    && yt-dlp --version
+    && pip3 install --no-cache-dir --break-system-packages -U you-get gallery-dl \
+    && yt-dlp --version \
+    && you-get --version \
+    && gallery-dl --version
 
 # Keep Node/EJS enabled and use yt-dlp's normal YouTube clients plus the embedded fallback.
 # Do not force mweb globally because current YouTube behavior can reject it from datacenter IPs.
@@ -43,7 +46,7 @@ RUN npm install --omit=dev
 
 COPY downloader/ ./
 
-# Keep the existing build-time compatibility patches.
+# Keep the existing build-time compatibility patches, plus universal diagnostics/fallback routing.
 RUN python3 patch-tiktok.py \
     && python3 patch-runtime.py \
     && python3 patch-stage-ui.py \
@@ -53,8 +56,9 @@ RUN python3 patch-tiktok.py \
     && python3 patch-tiktok-photo-disable.py \
     && python3 patch-audio-preview.py \
     && python3 patch-history-api.py \
+    && python3 patch-diagnostics.py \
     && node --check server.js \
-    && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py patch-preview.py patch-photo-audio.py patch-tiktok-special.py patch-tiktok-photo-disable.py patch-audio-preview.py patch-history-api.py
+    && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py patch-preview.py patch-photo-audio.py patch-tiktok-special.py patch-tiktok-photo-disable.py patch-audio-preview.py patch-history-api.py patch-diagnostics.py
 
 RUN mkdir -p /data/downloads
 
