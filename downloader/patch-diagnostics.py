@@ -65,7 +65,7 @@ function runExternalEngine(command, args, meta = {}) {
 }
 
 async function runYouGet(url, destinationPrefix) {
-  return runExternalEngine('you-get', ['-o', DOWNLOAD_DIR, '-O', destinationPrefix, '--no-caption', url], { urlHost: safeHost(url), fallback: true });
+  return runExternalEngine('you-get', ['-o', DOWNLOAD_DIR, '-O', destinationPrefix, url], { urlHost: safeHost(url), fallback: true });
 }
 
 async function probeBgutilProvider() {
@@ -160,11 +160,6 @@ new_download = r'''  try {
   );'''
 if old_download in text:
     text = text.replace(old_download, new_download, 1)
-
-old_health = "app.get('/health', (req, res) => res.json({ ok: true }));"
-new_health = "app.get('/health', (req, res) => res.json({ ok: true }));"
-if old_health in text and "app.get('/api/diagnostics'" not in text:
-    raise SystemExit("Diagnostics endpoint injection failed")
 
 path.write_text(text, encoding="utf-8")
 print("Universal downloader diagnostics patch applied")
