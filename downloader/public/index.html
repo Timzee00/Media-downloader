@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Media Downloader</title>
 <style>
-  :root { --bg:#0f172a; --card:#1a2338; --accent:#22d3ee; --text:#e5e7eb; --muted:#94a3b8; --border:#263049; }
-  * { box-sizing: border-box; }
+  :root { --bg:#0f172a; --card:#1a2338; --accent:#22d3ee; --text:#e5e7eb; --muted:#94a3b8; --border:#263049; --success:#4ade80; --danger:#fb7185; }
+  * { box-sizing:border-box; }
   body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif; background:var(--bg); color:var(--text); }
   header { display:flex; justify-content:space-between; align-items:center; padding:16px 20px; border-bottom:1px solid var(--border); }
   header h1 { font-size:18px; margin:0; }
@@ -38,6 +38,37 @@
   #loginOverlay p { color:var(--muted); font-size:13px; margin:8px 0 0; }
   .hidden { display:none !important; }
   .detected { margin-top:10px; padding:9px 10px; border:1px solid var(--border); border-radius:8px; font-size:12px; color:var(--muted); }
+
+  /* Detailed staged loading panel */
+  .progress-panel { margin-top:18px; border:1px solid var(--border); border-radius:12px; background:#10192d; overflow:hidden; }
+  .progress-head { display:flex; align-items:center; gap:12px; padding:15px 16px; border-bottom:1px solid var(--border); }
+  .progress-orb { width:38px; height:38px; flex:0 0 38px; border-radius:50%; display:grid; place-items:center; border:2px solid #334155; position:relative; }
+  .progress-orb::before { content:""; width:16px; height:16px; border-radius:50%; border:2px solid #64748b; border-top-color:transparent; animation:spin .8s linear infinite; }
+  .progress-orb.done::before { display:none; }
+  .progress-orb.done::after { content:"✓"; color:var(--success); font-weight:800; font-size:19px; }
+  .progress-title { font-size:14px; font-weight:700; }
+  .progress-detail { margin-top:3px; color:var(--muted); font-size:11px; }
+  .stage-list { padding:12px 16px 15px; }
+  .stage { display:grid; grid-template-columns:28px 1fr auto; gap:10px; align-items:center; min-height:45px; position:relative; }
+  .stage:not(:last-child)::after { content:""; position:absolute; left:13px; top:31px; bottom:-13px; width:2px; background:#273449; }
+  .stage-marker { width:28px; height:28px; border-radius:50%; border:1px solid #334155; background:#0b1222; display:grid; place-items:center; font-size:11px; color:#64748b; z-index:1; }
+  .stage.active .stage-marker { border-color:var(--accent); box-shadow:0 0 0 4px rgba(34,211,238,.08); color:var(--accent); }
+  .stage.active .stage-marker::after { content:""; width:10px; height:10px; border:2px solid var(--accent); border-right-color:transparent; border-radius:50%; animation:spin .7s linear infinite; }
+  .stage.done .stage-marker { border-color:var(--success); color:var(--success); }
+  .stage.done .stage-marker::after { content:"✓"; font-weight:800; }
+  .stage.failed .stage-marker { border-color:var(--danger); color:var(--danger); }
+  .stage.failed .stage-marker::after { content:"!"; font-weight:800; }
+  .stage-name { font-size:12px; color:#cbd5e1; }
+  .stage-detail { font-size:10px; color:#64748b; margin-top:2px; }
+  .stage.active .stage-name { color:var(--text); font-weight:600; }
+  .stage.done .stage-name { color:#a7f3d0; }
+  .stage-time { font-size:10px; color:#64748b; min-width:45px; text-align:right; }
+  .progress-track { height:3px; background:#1e293b; }
+  .progress-fill { height:100%; width:0; background:var(--accent); transition:width .5s ease; box-shadow:0 0 12px rgba(34,211,238,.35); }
+  .progress-panel.complete .progress-fill { background:var(--success); box-shadow:none; }
+  .progress-panel.error .progress-fill { background:var(--danger); box-shadow:none; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  @media (max-width:520px) { main { padding:20px 14px; } .card { padding:18px; } .history-panel { width:min(340px,92vw); } .stage-time { display:none; } }
 </style>
 </head>
 <body>
@@ -51,7 +82,13 @@
     <div id="detectedBox" class="detected hidden"></div>
     <div class="row"><select id="typeSelect"><option value="video">Video (with sound)</option><option value="audio">Sound only (MP3)</option></select><select id="qualitySelect"><option value="best">Best available</option></select></div>
     <button class="primary" id="downloadBtn">Download</button>
-    <div id="statusBox"></div><div id="resultBox"></div>
+    <div id="statusBox"></div>
+    <div id="progressPanel" class="progress-panel hidden" aria-live="polite">
+      <div class="progress-head"><div class="progress-orb" id="progressOrb"></div><div><div class="progress-title" id="progressTitle">Preparing download</div><div class="progress-detail" id="progressDetail">Starting...</div></div></div>
+      <div class="stage-list" id="stageList"></div>
+      <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+    </div>
+    <div id="resultBox"></div>
   </div></main>
 </div>
 <script>
@@ -87,20 +124,61 @@ urlInput.addEventListener('input',()=>{
     }catch{}
   },800);
 });
+
+const progressPanel=$('#progressPanel'),progressList=$('#stageList'),progressFill=$('#progressFill'),progressTitle=$('#progressTitle'),progressDetail=$('#progressDetail'),progressOrb=$('#progressOrb');
+let stageTimers=[];
+function clearStageTimers(){stageTimers.forEach(clearTimeout);stageTimers=[];}
+function buildStages(isPhoto){
+  return isPhoto ? [
+    ['Validate link','Checking the URL and security rules.'],
+    ['Resolve TikTok post','Following the short link and reading the photo post.'],
+    ['Fetch images','Downloading each image from the slideshow.'],
+    ['Build ZIP archive','Packaging the images into one downloadable file.'],
+    ['Finalize','Checking the archive and preparing your download.']
+  ] : [
+    ['Validate link','Checking the URL and security rules.'],
+    ['Read media information','Finding the title, formats and available quality.'],
+    ['Download media','Fetching the selected video or audio stream.'],
+    ['Process media','Combining streams or converting to the requested format.'],
+    ['Finalize','Checking the file and preparing your download.']
+  ];
+}
+function startProgress(isPhoto){
+  clearStageTimers();
+  const stages=buildStages(isPhoto);
+  progressPanel.classList.remove('hidden','complete','error');
+  progressOrb.classList.remove('done');
+  progressList.innerHTML=stages.map((s,i)=>`<div class="stage" data-stage="${i}"><div class="stage-marker">${i+1}</div><div><div class="stage-name">${s[0]}</div><div class="stage-detail">${s[1]}</div></div><div class="stage-time" data-time="${i}"></div></div>`).join('');
+  setStage(0,stages.length);
+  const delays=isPhoto?[900,2600,5200,9000]:[900,2400,4200,8000];
+  delays.forEach((delay,i)=>stageTimers.push(setTimeout(()=>setStage(i+1,stages.length),delay)));
+}
+function setStage(index,total){
+  const stages=[...progressList.querySelectorAll('.stage')];
+  stages.forEach((el,i)=>{el.classList.toggle('active',i===index);el.classList.toggle('done',i<index);if(i===index)el.classList.remove('failed');});
+  if(index<total){progressTitle.textContent=stages[index].querySelector('.stage-name').textContent;progressDetail.textContent=stages[index].querySelector('.stage-detail').textContent;progressFill.style.width=`${Math.max(5,(index/total)*92)}%`;}
+}
+function finishProgress(success,errorMessage){
+  clearStageTimers();
+  const stages=[...progressList.querySelectorAll('.stage')];
+  if(success){stages.forEach(s=>{s.classList.remove('active');s.classList.add('done');});progressTitle.textContent='Download ready';progressDetail.textContent='Everything is finished. Your file is ready to save.';progressFill.style.width='100%';progressPanel.classList.add('complete');progressOrb.classList.add('done');}
+  else {const active=stages.find(s=>s.classList.contains('active'))||stages[stages.length-1];stages.forEach(s=>s.classList.remove('active'));if(active)active.classList.add('failed');progressTitle.textContent='Download failed';progressDetail.textContent=errorMessage||'The server could not complete the download.';progressPanel.classList.add('error');}
+}
+
 $('#downloadBtn').addEventListener('click',async()=>{
   const url=urlInput.value.trim(),type=detectedContentType==='photo'?'video':typeSelect.value,quality=qualitySelect.value,statusBox=$('#statusBox'),resultBox=$('#resultBox'),btn=$('#downloadBtn');
   resultBox.innerHTML=''; if(!url){statusBox.textContent='Paste a link first.';return;}
-  btn.disabled=true; statusBox.textContent=detectedContentType==='photo'?'Preparing the photo slideshow...':'Starting download...';
+  btn.disabled=true; const isPhoto=detectedContentType==='photo'; startProgress(isPhoto); statusBox.textContent=isPhoto?'Preparing the photo slideshow...':'Starting download...';
   try{
     const startRes=await fetch('/api/download',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url,type,quality})});
     const startData=await startRes.json(); if(!startRes.ok)throw new Error(startData.error||'Failed to start.');
-    const jobId=startData.jobId; statusBox.textContent=detectedContentType==='photo'?'Downloading the photos and building your ZIP...':'Processing... this can take a bit for longer videos.';
+    const jobId=startData.jobId; statusBox.textContent=isPhoto?'Downloading the photos and building your ZIP...':'Processing your media...';
     let consecutiveFailures=0; const MAX_FAILURES=5;
     const poll=setInterval(async()=>{try{const statusRes=await fetch(`/api/status/${jobId}`);if(!statusRes.ok)throw new Error(`status check failed (${statusRes.status})`);const job=await statusRes.json();consecutiveFailures=0;
-      if(job.status==='done'){clearInterval(poll);statusBox.textContent=`Done: ${job.title||'Download ready'}`;resultBox.innerHTML=`<a href="/files/${jobId}" download>Save file</a>`;btn.disabled=false;loadHistory();}
-      else if(job.status==='failed'){clearInterval(poll);statusBox.textContent=`Failed: ${job.error||'Unknown error'}`;btn.disabled=false;}
-    }catch{consecutiveFailures++;if(consecutiveFailures>=MAX_FAILURES){clearInterval(poll);statusBox.textContent='Lost connection while checking progress — please refresh and check History.';btn.disabled=false;}}},2500);
-  }catch(err){statusBox.textContent=`Error: ${err.message}`;btn.disabled=false;}
+      if(job.status==='done'){clearInterval(poll);finishProgress(true);statusBox.textContent=`Done: ${job.title||'Download ready'}`;resultBox.innerHTML=`<a href="/files/${jobId}" download>Save file</a>`;btn.disabled=false;loadHistory();}
+      else if(job.status==='failed'){clearInterval(poll);finishProgress(false,job.error||'Unknown error.');statusBox.textContent=`Failed: ${job.error||'Unknown error'}`;btn.disabled=false;}
+    }catch{consecutiveFailures++;if(consecutiveFailures>=MAX_FAILURES){clearInterval(poll);finishProgress(false,'Lost connection while checking progress. Refresh and check History.');statusBox.textContent='Lost connection while checking progress — please refresh and check History.';btn.disabled=false;}}},2500);
+  }catch(err){finishProgress(false,err.message);statusBox.textContent=`Error: ${err.message}`;btn.disabled=false;}
 });
 const panel=$('#historyPanel');$('#openHistory').onclick=()=>{panel.classList.add('open');loadHistory();};$('#closeHistory').onclick=()=>panel.classList.remove('open');
 function formatSize(bytes){if(!bytes)return'';const mb=bytes/(1024*1024);return mb>1024?(mb/1024).toFixed(1)+' GB':mb.toFixed(1)+' MB';}
