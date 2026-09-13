@@ -1,11 +1,16 @@
 from pathlib import Path
-import re
 
 p = Path(__file__).resolve().parent / 'server.js'
 s = p.read_text(encoding='utf-8')
 
 if 'function extractTikTokCanonicalUrl(' not in s:
-    pattern = re.compile(r"async function fetchTikTokPage\(url\) \{.*?\n\}", re.S)
+    start_marker = 'async function fetchTikTokPage(url) {'
+    end_marker = '\n}\n\nasync function resolveTikTokPhoto'
+    start = s.find(start_marker)
+    end = s.find(end_marker, start)
+    if start < 0 or end < 0:
+        raise SystemExit('Could not locate fetchTikTokPage')
+
     replacement = '''function extractTikTokCanonicalUrl(html, fallback) {
   const patterns = [
     /<link[^>]+rel=[\\\"']canonical[\\\"'][^>]+href=[\\\"']([^\\\"']+)[\\\"']/i,
@@ -44,10 +49,8 @@ async function fetchTikTokPage(url) {
     clearTimeout(timer);
   }
 }'''
-    s2, count = pattern.subn(replacement, s, count=1)
-    if count != 1:
-        raise SystemExit('Could not locate fetchTikTokPage')
-    s = s2
+
+    s = s[:start] + replacement + s[end + 2:]
 
 p.write_text(s, encoding='utf-8')
 print('TikTok resolver patch applied')
