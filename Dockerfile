@@ -50,9 +50,8 @@ RUN npm install --omit=dev
 
 COPY downloader/ ./
 
-# Apply the existing platform/UI compatibility patches, universal diagnostics,
-# and the optional provider router. Fail the image build when any patch or syntax
-# check fails.
+# Apply the existing platform/UI compatibility patches and universal diagnostics.
+# Keep the provider-router experiment out of the build until it is tested independently.
 RUN python3 patch-tiktok.py \
     && python3 patch-runtime.py \
     && python3 patch-stage-ui.py \
@@ -63,7 +62,6 @@ RUN python3 patch-tiktok.py \
     && python3 patch-audio-preview.py \
     && python3 patch-history-api.py \
     && python3 patch-diagnostics.py \
-    && python3 patch-provider-router.py \
     && node --check server.js \
     && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py patch-preview.py patch-photo-audio.py patch-tiktok-special.py patch-tiktok-photo-disable.py patch-audio-preview.py patch-history-api.py patch-diagnostics.py patch-provider-router.py
 
@@ -76,4 +74,4 @@ EXPOSE 3000
 # Start the private BgUtils provider first, verify its /ping endpoint, then
 # hand the foreground process to the downloader. Provider stdout/stderr stays
 # visible in Render logs for troubleshooting.
-CMD ["sh", "-c", "set -eu; echo '[bgutil] starting provider on 127.0.0.1:4416'; node /opt/bgutil-ytdlp-pot-provider/server/build/main.js & provider_pid=$!; trap 'kill $provider_pid 2>/dev/null || true' TERM INT EXIT; ready=0; for i in $(seq 1 30); do if curl -fsS http://127.0.0.1:4416/ping >/dev/null 2>&1; then echo '[bgutil] provider ready on 127.0.0.1:4416'; ready=1; break; fi; if ! kill -0 $provider_pid 2>/dev/null; then echo '[bgutil] provider exited during startup' >&2; wait $provider_pid || true; exit 1; fi; sleep 1; done; if [ \"$ready\" -ne 1 ]; then echo '[bgutil] provider did not become ready within 30s' >&2; exit 1; fi; exec node server.js"]
+CMD ["sh", "-c", "set -eu; echo '[bgutil] starting provider on 127.0.0.1:4416'; node /opt/bgutil-ytdlp-pot-provider/server/build/main.js & provider_pid=$!; trap 'kill $provider_pid 2>/dev/null || true' TERM INT EXIT; ready=0; for i in $(seq 1 30); do if curl -fsS http://127.0.0.1:4416/ping >/dev/null 2>&1; then echo '[bgutil] provider ready on 127.0.0.1:4416'; ready=1; break; fi; if ! kill -0 $provider_pid 2>/dev/null; then echo '[bgutil] provider exited during startup' >&2; wait $provider_pid || true; exit 1; fi; sleep 1; done; if [ "$ready" -ne 1 ]; then echo '[bgutil] provider did not become ready within 30s' >&2; exit 1; fi; exec node server.js"]
