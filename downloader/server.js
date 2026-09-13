@@ -32,7 +32,6 @@ function readJobs() {
   }
 }
 function withJobs(mutator) {
-  // Chains every read-modify-write onto the same promise so they run one at a time.
   writeChain = writeChain.then(() => {
     const jobs = readJobs();
     const result = mutator(jobs);
@@ -57,7 +56,7 @@ const ACCESS_PASSWORD = process.env.ACCESS_PASSWORD || '';
 const SESSION_TOKEN = ACCESS_PASSWORD ? crypto.randomBytes(32).toString('hex') : null;
 
 function requireAuth(req, res, next) {
-  if (!ACCESS_PASSWORD) return next(); // auth disabled if no password is set
+  if (!ACCESS_PASSWORD) return next();
   if (req.cookies && req.cookies.session === SESSION_TOKEN) return next();
   return res.status(401).json({ error: 'Not authenticated.' });
 }
@@ -69,7 +68,7 @@ app.post('/api/login', (req, res) => {
     res.cookie('session', SESSION_TOKEN, {
       httpOnly: true,
       sameSite: 'lax',
-      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+      maxAge: 30 * 24 * 60 * 60 * 1000,
     });
     return res.json({ ok: true });
   }
@@ -83,7 +82,6 @@ app.get('/api/me', (req, res) => {
 });
 
 // ---- URL validation + basic SSRF protection ----
-// Blocks the server from being used to fetch its own internal network / cloud metadata endpoints.
 function isPrivateIp(ip) {
   if (ip.includes(':')) {
     return ip === '::1' || ip.startsWith('fe80:') || ip.startsWith('fc') || ip.startsWith('fd');
@@ -131,9 +129,245 @@ function runYtDlp(args) {
   });
 }
 
-// ---- Rate limiting + concurrency cap (no extra dependency, kept simple) ----
+function isTikTokHost(hostname) {
+  const host = hostname.toLowerCase();
+  return host === 'tiktok.com' || host.endsWith('.tiktok.com');
+}
+
+function isTikTokPhotoUrl(url) {
+  try {
+    const u = new URL(url);
+    return isTikTokHost(u.hostname) && /\/photo\/\d+/.test(u.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function extractJsonScript(html, id) {
+  const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`<script[^>]*id=["']${escapedId}["'][^>]*>([\\s\\S]*?)<\\/script>`, 'i');
+  const match = html.match(re);
+  if (!match) return null;
+  try {
+    return JSON.parse(match[1]);
+  } catch {
+    return null;
+  }
+}
+
+function findObjectByKey(root, key, wantedId = null) {
+  const seen = new Set();
+  function walk(value) {
+    if (!value || typeof value !== 'object' || seen.has(value)) return null;
+    seen.add(value);
+    if (value[key] && typeof value[key] === 'object') {
+      const candidate = value[key];
+      if (!wantedId || String(candidate.id || candidate.awemeId || '') === String(wantedId)) {
+        return candidate;
+      }
+    }
+    for (const child of Object.values(value)) {
+      const found = walk(child);
+      if (found) return found;
+    }
+    return null;
+  }
+  return walk(root);
+}
+
+function findTikTokItem(root, postId) {
+  const seen = new Set();
+  function walk(value) {
+    if (!value || typeof value !== 'object' || seen.has(value)) return null;
+    seen.add(value);
+
+    if (value.id && String(value.id) === String(postId) && (value.imagePost || value.video)) {
+      return value;
+    }
+    if (value.awemeId && String(value.awemeId) === String(postId) && (value.imagePost || value.video)) {
+      return value;
+    }
+
+    for (const child of Object.values(value)) {
+      const found = walk(child);
+      if (found) return found;
+    }
+    return null;
+  }
+  return walk(root);
+}
+
+function collectTikTokImageUrls(item) {
+  const urls = [];
+  const seen = new Set();
+  const images = item?.imagePost?.images || item?.imagePost?.imageList || [];
+
+  for (const image of images) {
+    const candidates = image?.imageURL?.urlList || image?.urlList || image?.urls || [];
+    for (const candidate of candidates) {
+      if (typeof candidate !== 'string') continue;
+      try {
+        const u = new URL(candidate);
+        const host = u.hostname.toLowerCase();
+        if (!['http:', 'https:'].includes(u.protocol)) continue;
+        if (!(host === 'tiktokcdn.com' || host.endsWith('.tiktokcdn.com') || host.endsWith('.tiktokcdn-us.com') || host.endsWith('.tiktokcdn-eu.com'))) continue;
+        if (!seen.has(candidate)) {
+          seen.add(candidate);
+          urls.push(candidate);
+        }
+      } catch {
+        // Ignore malformed asset URLs.
+      }
+      if (urls.length >= 35) return urls;
+      break;
+    }
+  }
+  return urls;
+}
+
+async function resolveTikTokPhoto(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30000);
+  try {
+    const response = await fetch(url, {
+      redirect: 'follow',
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+    });
+    if (!response.ok) throw new Error(`TikTok returned HTTP ${response.status}.`);
+
+    const finalUrl = response.url || url;
+    const match = new URL(finalUrl).pathname.match(/\/(?:photo|video)\/(\d+)/);
+    if (!match) throw new Error('Could not determine the TikTok post ID.');
+    const postId = match[1];
+    const html = await response.text();
+
+    const datasets = [
+      extractJsonScript(html, '__UNIVERSAL_DATA_FOR_REHYDRATION__'),
+      extractJsonScript(html, 'SIGI_STATE'),
+      extractJsonScript(html, '__NEXT_DATA__'),
+    ].filter(Boolean);
+
+    let item = null;
+    for (const data of datasets) {
+      item = findTikTokItem(data, postId);
+      if (item) break;
+    }
+
+    if (!item) throw new Error('TikTok did not expose the photo post data to this server.');
+
+    const imageUrls = collectTikTokImageUrls(item);
+    if (!imageUrls.length) throw new Error('No downloadable images were found in this TikTok photo post.');
+
+    return {
+      postId,
+      finalUrl,
+      title: item.desc || item.imagePost?.title || 'TikTok photo slideshow',
+      thumbnail: imageUrls[0],
+      uploader: item.author?.nickname || item.author?.uniqueId || null,
+      imageUrls,
+      duration: null,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function downloadTikTokAsset(url, destination, referer) {
+  const response = await fetch(url, {
+    redirect: 'follow',
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36',
+      Referer: referer,
+      Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+    },
+  });
+  if (!response.ok) throw new Error(`TikTok image server returned HTTP ${response.status}.`);
+
+  const contentLength = Number(response.headers.get('content-length') || 0);
+  if (contentLength > 20 * 1024 * 1024) throw new Error('A TikTok image was larger than the 20 MB safety limit.');
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (buffer.length > 20 * 1024 * 1024) throw new Error('A TikTok image was larger than the 20 MB safety limit.');
+  fs.writeFileSync(destination, buffer);
+  return buffer.length;
+}
+
+function createZipArchive(files, zipPath) {
+  return new Promise((resolve, reject) => {
+    const script = [
+      'import sys, zipfile, os',
+      'out = sys.argv[1]',
+      'files = sys.argv[2:]',
+      'with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:',
+      '    for f in files: z.write(f, os.path.basename(f))',
+    ].join('\n');
+
+    const proc = spawn('python3', ['-c', script, zipPath, ...files]);
+    let stderr = '';
+    proc.stderr.on('data', d => (stderr += d.toString()));
+    proc.on('close', code => {
+      if (code === 0) resolve();
+      else reject(new Error(stderr || 'Could not create the photo archive.'));
+    });
+    proc.on('error', reject);
+  });
+}
+
+async function processTikTokPhotoJob(job, id) {
+  const photo = await resolveTikTokPhoto(job.url);
+  const prefix = path.join(DOWNLOAD_DIR, `${id}-photo-`);
+  const imageFiles = [];
+  let totalSize = 0;
+
+  try {
+    for (let i = 0; i < photo.imageUrls.length; i++) {
+      const assetUrl = photo.imageUrls[i];
+      const ext = (() => {
+        try {
+          const pathname = new URL(assetUrl).pathname.toLowerCase();
+          if (pathname.endsWith('.png')) return 'png';
+          if (pathname.endsWith('.webp')) return 'webp';
+          if (pathname.endsWith('.heic')) return 'heic';
+        } catch {}
+        return 'jpg';
+      })();
+      const filePath = `${prefix}${String(i + 1).padStart(2, '0')}.${ext}`;
+      totalSize += await downloadTikTokAsset(assetUrl, filePath, photo.finalUrl);
+      imageFiles.push(filePath);
+    }
+
+    const zipPath = path.join(DOWNLOAD_DIR, `${id}-tiktok-photos.zip`);
+    await createZipArchive(imageFiles, zipPath);
+
+    for (const file of imageFiles) {
+      try { fs.unlinkSync(file); } catch {}
+    }
+
+    return {
+      title: photo.title,
+      thumbnail: photo.thumbnail,
+      duration: null,
+      sourcePlatform: 'TikTok Photo',
+      filePath: path.basename(zipPath),
+      fileSize: fs.statSync(zipPath).size,
+      imageCount: imageFiles.length,
+    };
+  } catch (err) {
+    for (const file of imageFiles) {
+      try { fs.unlinkSync(file); } catch {}
+    }
+    throw err;
+  }
+}
+
+// ---- Rate limiting + concurrency cap ----
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
-const RATE_LIMIT_MAX = 15; // requests per window per IP, across /api/info + /api/download
+const RATE_LIMIT_MAX = 15;
 const MAX_CONCURRENT_JOBS = 2;
 
 const rateBuckets = new Map();
@@ -161,7 +395,22 @@ app.post('/api/info', requireAuth, rateLimit, async (req, res) => {
   if (!url || !(await isSafeUrl(url))) {
     return res.status(400).json({ error: 'A valid, public http(s) URL is required.' });
   }
+
   try {
+    if (isTikTokPhotoUrl(url)) {
+      const photo = await resolveTikTokPhoto(url);
+      return res.json({
+        title: photo.title,
+        thumbnail: photo.thumbnail,
+        duration: null,
+        uploader: photo.uploader,
+        extractor: 'TikTok Photo',
+        contentType: 'photo',
+        imageCount: photo.imageUrls.length,
+        availableHeights: [],
+      });
+    }
+
     const { stdout } = await runYtDlp(['-j', '--no-playlist', url]);
     const info = JSON.parse(stdout.trim().split('\n')[0]);
     res.json({
@@ -170,10 +419,9 @@ app.post('/api/info', requireAuth, rateLimit, async (req, res) => {
       duration: info.duration,
       uploader: info.uploader,
       extractor: info.extractor,
+      contentType: 'video',
       availableHeights: [...new Set(
-        (info.formats || [])
-          .map(f => f.height)
-          .filter(Boolean)
+        (info.formats || []).map(f => f.height).filter(Boolean)
       )].sort((a, b) => b - a),
     });
   } catch (err) {
@@ -238,6 +486,17 @@ app.post('/api/download', requireAuth, rateLimit, async (req, res) => {
 async function processJob(id) {
   const job = getJob(id);
   if (!job) return;
+
+  // TikTok photo/slideshow posts are not handled by yt-dlp's normal video extractor.
+  // Resolve the images directly and return them as a ZIP archive instead.
+  if (isTikTokPhotoUrl(job.url)) {
+    if (job.type === 'audio') throw new Error('TikTok photo posts contain images, so audio-only download is not available.');
+    const result = await processTikTokPhotoJob(job, id);
+    const updated = getJob(id);
+    Object.assign(updated, result, { status: 'done', type: 'photo' });
+    await upsertJob(updated);
+    return;
+  }
 
   let info = {};
   try {
@@ -325,7 +584,7 @@ app.get('/files/:id', requireAuth, (req, res) => {
 
 app.get('/health', (req, res) => res.json({ ok: true }));
 
-// ---- Scheduled cleanup: delete finished downloads older than MAX_AGE_HOURS ----
+// ---- Scheduled cleanup ----
 const MAX_AGE_HOURS = Number(process.env.MAX_AGE_HOURS || 24);
 async function cleanupOldFiles() {
   const cutoff = Date.now() - MAX_AGE_HOURS * 60 * 60 * 1000;
@@ -337,7 +596,7 @@ async function cleanupOldFiles() {
       if (expired && job.filePath) {
         const fullPath = path.join(DOWNLOAD_DIR, job.filePath);
         if (fs.existsSync(fullPath)) {
-          try { fs.unlinkSync(fullPath); } catch { /* ignore */ }
+          try { fs.unlinkSync(fullPath); } catch {}
         }
       }
       if (!expired) keep.push(job);
