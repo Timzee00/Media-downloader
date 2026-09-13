@@ -9,13 +9,11 @@ h = HTML.read_text(encoding='utf-8')
 s = SERVER.read_text(encoding='utf-8')
 
 # ---------------- Persistent browser history ----------------
-# Keep the server history endpoint, but cache compact history metadata in the
-# browser so it survives page/tab closes and is shared by other tabs on the
-# same device/origin. The storage event keeps open tabs synchronized.
 if 'MEDIA_DOWNLOADER_HISTORY_V1' not in h:
-    marker = "const panel = $('#historyPanel');"
-    if marker not in h:
+    marker_match = re.search(r"(?m)^([^\n]*historyPanel[^\n]*;)$", h)
+    if not marker_match:
         raise SystemExit('History panel marker not found')
+    marker = marker_match.group(1)
 
     persistence = r'''const HISTORY_STORAGE_KEY = 'MEDIA_DOWNLOADER_HISTORY_V1';
 const HISTORY_MAX_ITEMS = 100;
@@ -78,7 +76,6 @@ function renderHistoryItems(items){
     </div>
   `).join('');
 }
-
 window.addEventListener('storage',event=>{
   if(event.key===HISTORY_STORAGE_KEY) renderHistoryItems(readHistoryCache());
 });
@@ -100,7 +97,6 @@ for i in range(brace,len(h)):
             break
 if end is None:
     raise SystemExit('Could not locate loadHistory end')
-
 new_load=r'''async function loadHistory(){
   const cached=readHistoryCache();
   if(cached.length) renderHistoryItems(cached);
