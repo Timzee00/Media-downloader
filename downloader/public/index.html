@@ -5,366 +5,108 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Media Downloader</title>
 <style>
-  :root {
-    --bg: #0f172a;
-    --card: #1a2338;
-    --accent: #22d3ee;
-    --text: #e5e7eb;
-    --muted: #94a3b8;
-    --border: #263049;
-  }
+  :root { --bg:#0f172a; --card:#1a2338; --accent:#22d3ee; --text:#e5e7eb; --muted:#94a3b8; --border:#263049; }
   * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
-    background: var(--bg);
-    color: var(--text);
-  }
-  header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px 20px;
-    border-bottom: 1px solid var(--border);
-  }
-  header h1 { font-size: 18px; margin: 0; }
-  main {
-    max-width: 640px;
-    margin: 0 auto;
-    padding: 32px 20px;
-  }
-  .card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 24px;
-  }
-  input[type=text], input[type=password] {
-    width: 100%;
-    padding: 12px 14px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: #0b1222;
-    color: var(--text);
-    font-size: 14px;
-  }
-  .row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
-  select {
-    flex: 1;
-    min-width: 120px;
-    padding: 10px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: #0b1222;
-    color: var(--text);
-  }
-  button.primary {
-    margin-top: 16px;
-    width: 100%;
-    padding: 12px;
-    border: none;
-    border-radius: 8px;
-    background: var(--accent);
-    color: #06202b;
-    font-weight: 600;
-    font-size: 15px;
-    cursor: pointer;
-  }
-  button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
-  #statusBox { margin-top: 16px; font-size: 13px; color: var(--muted); min-height: 20px; }
-  #resultBox { margin-top: 12px; }
-  #resultBox a {
-    display: inline-block;
-    padding: 10px 16px;
-    background: #14532d;
-    color: #bbf7d0;
-    border-radius: 8px;
-    text-decoration: none;
-    font-size: 14px;
-  }
-
-  .history-toggle {
-    position: fixed; top: 16px; right: 16px;
-    padding: 8px 14px; cursor: pointer;
-    background: var(--card); color: var(--text);
-    border: 1px solid var(--border); border-radius: 8px;
-  }
-  .history-panel {
-    position: fixed; top: 0; right: -340px;
-    width: 340px; height: 100vh;
-    background: #101728; border-left: 1px solid var(--border);
-    transition: right 0.25s ease;
-    overflow-y: auto; z-index: 1000;
-  }
-  .history-panel.open { right: 0; }
-  .history-header {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 16px; border-bottom: 1px solid var(--border);
-  }
-  .history-header button {
-    background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer;
-  }
-  .history-item {
-    display: flex; gap: 10px; padding: 12px 16px;
-    border-bottom: 1px solid var(--border);
-  }
-  .history-item img {
-    width: 64px; height: 40px; object-fit: cover; border-radius: 4px; background: #000;
-  }
-  .history-item .meta { flex: 1; min-width: 0; }
-  .history-item .title {
-    font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .history-item .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
-  .history-item .actions { display: flex; gap: 8px; margin-top: 6px; }
-  .history-item .actions a, .history-item .actions button {
-    font-size: 11px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border);
-    background: #0b1222; color: var(--text); cursor: pointer; text-decoration: none;
-  }
-  .empty { padding: 20px; color: var(--muted); font-size: 13px; text-align: center; }
-
-  #loginOverlay {
-    position: fixed; inset: 0; background: var(--bg);
-    display: flex; align-items: center; justify-content: center; z-index: 2000;
-  }
-  #loginOverlay .card { width: 280px; }
-  #loginOverlay p { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
-  .hidden { display: none !important; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif; background:var(--bg); color:var(--text); }
+  header { display:flex; justify-content:space-between; align-items:center; padding:16px 20px; border-bottom:1px solid var(--border); }
+  header h1 { font-size:18px; margin:0; }
+  main { max-width:640px; margin:0 auto; padding:32px 20px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:24px; }
+  input[type=text],input[type=password] { width:100%; padding:12px 14px; border-radius:8px; border:1px solid var(--border); background:#0b1222; color:var(--text); font-size:14px; }
+  .row { display:flex; gap:10px; margin-top:14px; flex-wrap:wrap; }
+  select { flex:1; min-width:120px; padding:10px; border-radius:8px; border:1px solid var(--border); background:#0b1222; color:var(--text); }
+  button.primary { margin-top:16px; width:100%; padding:12px; border:none; border-radius:8px; background:var(--accent); color:#06202b; font-weight:600; font-size:15px; cursor:pointer; }
+  button.primary:disabled { opacity:.5; cursor:not-allowed; }
+  #statusBox { margin-top:16px; font-size:13px; color:var(--muted); min-height:20px; }
+  #resultBox { margin-top:12px; }
+  #resultBox a { display:inline-block; padding:10px 16px; background:#14532d; color:#bbf7d0; border-radius:8px; text-decoration:none; font-size:14px; }
+  .history-toggle { position:fixed; top:16px; right:16px; padding:8px 14px; cursor:pointer; background:var(--card); color:var(--text); border:1px solid var(--border); border-radius:8px; }
+  .history-panel { position:fixed; top:0; right:-340px; width:340px; height:100vh; background:#101728; border-left:1px solid var(--border); transition:right .25s ease; overflow-y:auto; z-index:1000; }
+  .history-panel.open { right:0; }
+  .history-header { display:flex; justify-content:space-between; align-items:center; padding:16px; border-bottom:1px solid var(--border); }
+  .history-header button { background:none; border:none; color:var(--muted); font-size:20px; cursor:pointer; }
+  .history-item { display:flex; gap:10px; padding:12px 16px; border-bottom:1px solid var(--border); }
+  .history-item img { width:64px; height:40px; object-fit:cover; border-radius:4px; background:#000; }
+  .history-item .meta { flex:1; min-width:0; }
+  .history-item .title { font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .history-item .sub { font-size:11px; color:var(--muted); margin-top:2px; }
+  .history-item .actions { display:flex; gap:8px; margin-top:6px; }
+  .history-item .actions a,.history-item .actions button { font-size:11px; padding:3px 8px; border-radius:6px; border:1px solid var(--border); background:#0b1222; color:var(--text); cursor:pointer; text-decoration:none; }
+  .empty { padding:20px; color:var(--muted); font-size:13px; text-align:center; }
+  #loginOverlay { position:fixed; inset:0; background:var(--bg); display:flex; align-items:center; justify-content:center; z-index:2000; }
+  #loginOverlay .card { width:280px; }
+  #loginOverlay p { color:var(--muted); font-size:13px; margin:8px 0 0; }
+  .hidden { display:none !important; }
+  .detected { margin-top:10px; padding:9px 10px; border:1px solid var(--border); border-radius:8px; font-size:12px; color:var(--muted); }
 </style>
 </head>
 <body>
-
-<div id="loginOverlay" class="hidden">
-  <div class="card">
-    <h2 style="margin-top:0;font-size:16px;">Enter password</h2>
-    <input type="password" id="passwordInput" placeholder="Access password" />
-    <button class="primary" id="loginBtn">Unlock</button>
-    <p id="loginError"></p>
-  </div>
-</div>
-
+<div id="loginOverlay" class="hidden"><div class="card"><h2 style="margin-top:0;font-size:16px;">Enter password</h2><input type="password" id="passwordInput" placeholder="Access password" /><button class="primary" id="loginBtn">Unlock</button><p id="loginError"></p></div></div>
 <div id="app" class="hidden">
-  <header>
-    <h1>🎬 Media Downloader</h1>
-  </header>
-
-  <button class="history-toggle" id="openHistory">📥 History</button>
-
-  <div class="history-panel" id="historyPanel">
-    <div class="history-header">
-      <strong>Download History</strong>
-      <button id="closeHistory">&times;</button>
-    </div>
-    <div id="historyList"></div>
-  </div>
-
-  <main>
-    <div class="card">
-      <input type="text" id="urlInput" placeholder="Paste a video or audio link..." />
-      <div class="row">
-        <select id="typeSelect">
-          <option value="video">Video (with sound)</option>
-          <option value="audio">Sound only (MP3)</option>
-        </select>
-        <select id="qualitySelect">
-          <option value="best">Best available</option>
-        </select>
-      </div>
-      <button class="primary" id="downloadBtn">Download</button>
-      <div id="statusBox"></div>
-      <div id="resultBox"></div>
-    </div>
-  </main>
+  <header><h1>Media Downloader</h1></header>
+  <button class="history-toggle" id="openHistory">History</button>
+  <div class="history-panel" id="historyPanel"><div class="history-header"><strong>Download History</strong><button id="closeHistory">&times;</button></div><div id="historyList"></div></div>
+  <main><div class="card">
+    <input type="text" id="urlInput" placeholder="Paste a video or audio link..." />
+    <div id="detectedBox" class="detected hidden"></div>
+    <div class="row"><select id="typeSelect"><option value="video">Video (with sound)</option><option value="audio">Sound only (MP3)</option></select><select id="qualitySelect"><option value="best">Best available</option></select></div>
+    <button class="primary" id="downloadBtn">Download</button>
+    <div id="statusBox"></div><div id="resultBox"></div>
+  </div></main>
 </div>
-
 <script>
 const $ = sel => document.querySelector(sel);
-
-// ---- Auth gate ----
-async function checkAuth() {
-  const res = await fetch('/api/me');
-  const data = await res.json();
-  if (!data.authRequired || data.authenticated) {
-    $('#loginOverlay').classList.add('hidden');
-    $('#app').classList.remove('hidden');
-  } else {
-    $('#loginOverlay').classList.remove('hidden');
-    $('#app').classList.add('hidden');
-  }
-}
-
-$('#loginBtn').addEventListener('click', async () => {
-  const password = $('#passwordInput').value;
-  const errBox = $('#loginError');
-  errBox.textContent = '';
-  const res = await fetch('/api/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password }),
-  });
-  if (res.ok) {
-    checkAuth();
-  } else {
-    errBox.textContent = 'Wrong password.';
-  }
-});
-$('#passwordInput').addEventListener('keydown', e => {
-  if (e.key === 'Enter') $('#loginBtn').click();
-});
-
+async function checkAuth(){const res=await fetch('/api/me');const data=await res.json();if(!data.authRequired||data.authenticated){$('#loginOverlay').classList.add('hidden');$('#app').classList.remove('hidden');}else{$('#loginOverlay').classList.remove('hidden');$('#app').classList.add('hidden');}}
+$('#loginBtn').addEventListener('click',async()=>{const password=$('#passwordInput').value;const errBox=$('#loginError');errBox.textContent='';const res=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password})});if(res.ok)checkAuth();else errBox.textContent='Wrong password.';});
+$('#passwordInput').addEventListener('keydown',e=>{if(e.key==='Enter')$('#loginBtn').click();});
 checkAuth();
-
-// ---- Quality list — populated dynamically from /api/info when possible ----
-const typeSelect = $('#typeSelect');
-const qualitySelect = $('#qualitySelect');
-const urlInput = $('#urlInput');
-
-const FALLBACK_HEIGHTS = [2160, 1440, 1080, 720, 480, 360];
-
-function renderQualityOptions(heights) {
-  qualitySelect.innerHTML = '<option value="best">Best available</option>';
-  heights.forEach(h => {
-    const opt = document.createElement('option');
-    opt.value = `${h}p`;
-    opt.textContent = `${h}p`;
-    qualitySelect.appendChild(opt);
-  });
-}
+const typeSelect=$('#typeSelect'),qualitySelect=$('#qualitySelect'),urlInput=$('#urlInput'),detectedBox=$('#detectedBox');
+const FALLBACK_HEIGHTS=[2160,1440,1080,720,480,360];
+function renderQualityOptions(heights){qualitySelect.innerHTML='<option value="best">Best available</option>';heights.forEach(h=>{const opt=document.createElement('option');opt.value=`${h}p`;opt.textContent=`${h}p`;qualitySelect.appendChild(opt);});}
 renderQualityOptions(FALLBACK_HEIGHTS);
-
-typeSelect.addEventListener('change', () => {
-  qualitySelect.style.display = typeSelect.value === 'audio' ? 'none' : '';
-});
-
+typeSelect.addEventListener('change',()=>{qualitySelect.style.display=typeSelect.value==='audio'?'none':'';});
+let detectedContentType='video';
 let infoDebounce;
-urlInput.addEventListener('input', () => {
-  clearTimeout(infoDebounce);
-  const url = urlInput.value.trim();
-  if (!url) return;
-  infoDebounce = setTimeout(async () => {
-    try {
-      const res = await fetch('/api/info', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
-      });
-      if (!res.ok) return; // silently keep fallback list — not worth alarming the user mid-typing
-      const data = await res.json();
-      if (data.availableHeights && data.availableHeights.length) {
-        renderQualityOptions(data.availableHeights);
+urlInput.addEventListener('input',()=>{
+  clearTimeout(infoDebounce); detectedContentType='video'; detectedBox.classList.add('hidden');
+  const url=urlInput.value.trim(); if(!url)return;
+  infoDebounce=setTimeout(async()=>{
+    try{
+      const res=await fetch('/api/info',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
+      if(!res.ok)return;
+      const data=await res.json();
+      detectedContentType=data.contentType||'video';
+      if(detectedContentType==='photo'){
+        typeSelect.value='video'; typeSelect.disabled=true; qualitySelect.style.display='none';
+        detectedBox.textContent=`TikTok photo slideshow detected — ${data.imageCount||'multiple'} image(s) will be saved together as a ZIP.`;
+        detectedBox.classList.remove('hidden');
+      }else{
+        typeSelect.disabled=false; qualitySelect.style.display=typeSelect.value==='audio'?'none':'';
+        if(data.availableHeights&&data.availableHeights.length)renderQualityOptions(data.availableHeights);
       }
-    } catch {
-      // network hiccup — keep fallback list
-    }
-  }, 800);
+    }catch{}
+  },800);
 });
-
-$('#downloadBtn').addEventListener('click', async () => {
-  const url = urlInput.value.trim();
-  const type = typeSelect.value;
-  const quality = qualitySelect.value;
-  const statusBox = $('#statusBox');
-  const resultBox = $('#resultBox');
-  const btn = $('#downloadBtn');
-
-  resultBox.innerHTML = '';
-  if (!url) { statusBox.textContent = 'Paste a link first.'; return; }
-
-  btn.disabled = true;
-  statusBox.textContent = 'Starting download...';
-
-  try {
-    const startRes = await fetch('/api/download', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, type, quality }),
-    });
-    const startData = await startRes.json();
-    if (!startRes.ok) throw new Error(startData.error || 'Failed to start.');
-
-    const jobId = startData.jobId;
-    statusBox.textContent = 'Processing... this can take a bit for longer videos.';
-
-    let consecutiveFailures = 0;
-    const MAX_FAILURES = 5;
-
-    const poll = setInterval(async () => {
-      try {
-        const statusRes = await fetch(`/api/status/${jobId}`);
-        if (!statusRes.ok) throw new Error(`status check failed (${statusRes.status})`);
-        const job = await statusRes.json();
-        consecutiveFailures = 0;
-
-        if (job.status === 'done') {
-          clearInterval(poll);
-          statusBox.textContent = `Done: ${job.title || 'Download ready'}`;
-          resultBox.innerHTML = `<a href="/files/${jobId}" download>⬇ Save file</a>`;
-          btn.disabled = false;
-          loadHistory();
-        } else if (job.status === 'failed') {
-          clearInterval(poll);
-          statusBox.textContent = `Failed: ${job.error || 'Unknown error'}`;
-          btn.disabled = false;
-        }
-      } catch (err) {
-        consecutiveFailures++;
-        if (consecutiveFailures >= MAX_FAILURES) {
-          clearInterval(poll);
-          statusBox.textContent = 'Lost connection while checking progress — please refresh and check History.';
-          btn.disabled = false;
-        }
-      }
-    }, 2500);
-  } catch (err) {
-    statusBox.textContent = `Error: ${err.message}`;
-    btn.disabled = false;
-  }
+$('#downloadBtn').addEventListener('click',async()=>{
+  const url=urlInput.value.trim(),type=detectedContentType==='photo'?'video':typeSelect.value,quality=qualitySelect.value,statusBox=$('#statusBox'),resultBox=$('#resultBox'),btn=$('#downloadBtn');
+  resultBox.innerHTML=''; if(!url){statusBox.textContent='Paste a link first.';return;}
+  btn.disabled=true; statusBox.textContent=detectedContentType==='photo'?'Preparing the photo slideshow...':'Starting download...';
+  try{
+    const startRes=await fetch('/api/download',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url,type,quality})});
+    const startData=await startRes.json(); if(!startRes.ok)throw new Error(startData.error||'Failed to start.');
+    const jobId=startData.jobId; statusBox.textContent=detectedContentType==='photo'?'Downloading the photos and building your ZIP...':'Processing... this can take a bit for longer videos.';
+    let consecutiveFailures=0; const MAX_FAILURES=5;
+    const poll=setInterval(async()=>{try{const statusRes=await fetch(`/api/status/${jobId}`);if(!statusRes.ok)throw new Error(`status check failed (${statusRes.status})`);const job=await statusRes.json();consecutiveFailures=0;
+      if(job.status==='done'){clearInterval(poll);statusBox.textContent=`Done: ${job.title||'Download ready'}`;resultBox.innerHTML=`<a href="/files/${jobId}" download>Save file</a>`;btn.disabled=false;loadHistory();}
+      else if(job.status==='failed'){clearInterval(poll);statusBox.textContent=`Failed: ${job.error||'Unknown error'}`;btn.disabled=false;}
+    }catch{consecutiveFailures++;if(consecutiveFailures>=MAX_FAILURES){clearInterval(poll);statusBox.textContent='Lost connection while checking progress — please refresh and check History.';btn.disabled=false;}}},2500);
+  }catch(err){statusBox.textContent=`Error: ${err.message}`;btn.disabled=false;}
 });
-
-// ---- History panel ----
-const panel = $('#historyPanel');
-$('#openHistory').onclick = () => { panel.classList.add('open'); loadHistory(); };
-$('#closeHistory').onclick = () => panel.classList.remove('open');
-
-function formatSize(bytes) {
-  if (!bytes) return '';
-  const mb = bytes / (1024 * 1024);
-  return mb > 1024 ? (mb / 1024).toFixed(1) + ' GB' : mb.toFixed(1) + ' MB';
-}
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str || '';
-  return div.innerHTML;
-}
-
-async function loadHistory() {
-  const res = await fetch('/api/history');
-  if (!res.ok) return;
-  const items = await res.json();
-  const list = $('#historyList');
-  if (!items.length) {
-    list.innerHTML = '<div class="empty">No downloads yet.</div>';
-    return;
-  }
-  list.innerHTML = items.map(item => `
-    <div class="history-item">
-      <img src="${item.thumbnail || ''}" onerror="this.style.visibility='hidden'">
-      <div class="meta">
-        <div class="title">${escapeHtml(item.title)}</div>
-        <div class="sub">${item.sourcePlatform || ''} · ${item.type === 'audio' ? 'MP3' : 'Video'} · ${formatSize(item.fileSize)}</div>
-        <div class="actions">
-          <a href="/files/${item.id}" download>Save</a>
-          <button onclick="deleteItem('${item.id}')">Delete</button>
-        </div>
-      </div>
-    </div>
-  `).join('');
-}
-
-async function deleteItem(id) {
-  await fetch(`/api/history/${id}`, { method: 'DELETE' });
-  loadHistory();
-}
+const panel=$('#historyPanel');$('#openHistory').onclick=()=>{panel.classList.add('open');loadHistory();};$('#closeHistory').onclick=()=>panel.classList.remove('open');
+function formatSize(bytes){if(!bytes)return'';const mb=bytes/(1024*1024);return mb>1024?(mb/1024).toFixed(1)+' GB':mb.toFixed(1)+' MB';}
+function escapeHtml(str){const div=document.createElement('div');div.textContent=str||'';return div.innerHTML;}
+async function loadHistory(){const res=await fetch('/api/history');if(!res.ok)return;const items=await res.json();const list=$('#historyList');if(!items.length){list.innerHTML='<div class="empty">No downloads yet.</div>';return;}list.innerHTML=items.map(item=>{const label=item.type==='audio'?'MP3':item.type==='photo'?`Photo slideshow (${item.imageCount||'multiple'} images)`:'Video';return `<div class="history-item"><img src="${item.thumbnail||''}" onerror="this.style.visibility='hidden'"><div class="meta"><div class="title">${escapeHtml(item.title)}</div><div class="sub">${item.sourcePlatform||''} · ${label} · ${formatSize(item.fileSize)}</div><div class="actions"><a href="/files/${item.id}" download>Save</a><button onclick="deleteItem('${item.id}')">Delete</button></div></div></div>`;}).join('');}
+async function deleteItem(id){await fetch(`/api/history/${id}`,{method:'DELETE'});loadHistory();}
 </script>
 </body>
 </html>
