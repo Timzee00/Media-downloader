@@ -50,8 +50,9 @@ RUN npm install --omit=dev
 
 COPY downloader/ ./
 
-# Apply the existing platform/UI compatibility patches and the universal
-# diagnostics/fallback layer. Fail the image build when any patch or syntax check fails.
+# Apply the existing platform/UI compatibility patches, universal diagnostics,
+# and the optional provider router. Fail the image build when any patch or syntax
+# check fails.
 RUN python3 patch-tiktok.py \
     && python3 patch-runtime.py \
     && python3 patch-stage-ui.py \
@@ -62,8 +63,9 @@ RUN python3 patch-tiktok.py \
     && python3 patch-audio-preview.py \
     && python3 patch-history-api.py \
     && python3 patch-diagnostics.py \
+    && python3 patch-provider-router.py \
     && node --check server.js \
-    && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py patch-preview.py patch-photo-audio.py patch-tiktok-special.py patch-tiktok-photo-disable.py patch-audio-preview.py patch-history-api.py patch-diagnostics.py
+    && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py patch-preview.py patch-photo-audio.py patch-tiktok-special.py patch-tiktok-photo-disable.py patch-audio-preview.py patch-history-api.py patch-diagnostics.py patch-provider-router.py
 
 RUN mkdir -p /data/downloads
 
