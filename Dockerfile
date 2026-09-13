@@ -9,9 +9,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \
     ca-certificates \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip3 install --no-cache-dir --break-system-packages -U "yt-dlp[default,curl-cffi]" \
+    && pip3 install --no-cache-dir --break-system-packages -U "bgutil-ytdlp-pot-provider==2.0.0" \
     && yt-dlp --version
 
 # yt-dlp enables Deno by default, but this container already has Node 22.
@@ -19,6 +21,16 @@ RUN pip3 install --no-cache-dir --break-system-packages -U "yt-dlp[default,curl-
 RUN printf '%s\n' '--js-runtimes node' > /etc/yt-dlp.conf \
     && node --version \
     && yt-dlp --version
+
+# Install the matching BgUtils PO-token generation script. YouTube increasingly
+# requires Proof-of-Origin tokens for some clients and may otherwise return
+# "Sign in to confirm you're not a bot" / HTTP 403 from server IPs.
+RUN git clone --depth 1 --branch 2.0.0 https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git /opt/bgutil-ytdlp-pot-provider \
+    && cd /opt/bgutil-ytdlp-pot-provider/server \
+    && npm ci --omit=dev --no-audit --no-fund \
+    && npm ci --no-audit --no-fund \
+    && npx tsc \
+    && printf '%s\n' '--extractor-args "youtubepot-bgutilscript:script_path=/opt/bgutil-ytdlp-pot-provider/server/build/generate_once.js"' >> /etc/yt-dlp.conf
 
 WORKDIR /app
 
