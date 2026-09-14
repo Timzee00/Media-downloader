@@ -53,25 +53,25 @@ RUN npm install --omit=dev
 COPY downloader/ ./
 
 # Apply platform/UI compatibility patches, provider routing, diagnostics,
-# bounded queueing, and the final download hardening/branding pass.
+# bounded queueing, and the final production hardening/branding pass.
 RUN python3 patch-tiktok.py \
     && python3 patch-runtime.py \
     && python3 patch-stage-ui.py \
     && python3 patch-preview.py \
     && python3 patch-photo-audio.py \
     && python3 patch-tiktok-special.py \
-    && python3 patch-tiktok-photo-disable.py \
     && python3 patch-audio-preview.py \
     && python3 patch-history-api.py \
     && python3 patch-diagnostics.py \
     && python3 patch-queue.py \
     && python3 patch-hardening-brand.py \
+    && python3 patch-production-hardening.py \
     && node --check server.js \
     && node --check provider-router.js \
     && node --check queue-manager.js \
     && node --check download-utils.js \
     && node --test provider-router.test.js queue-manager.test.js platform-providers.test.js download-utils.test.js \
-    && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py patch-preview.py patch-photo-audio.py patch-tiktok-special.py patch-tiktok-photo-disable.py patch-audio-preview.py patch-history-api.py patch-diagnostics.py patch-queue.py patch-hardening-brand.py patch-provider-router.py
+    && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py patch-preview.py patch-photo-audio.py patch-tiktok-special.py patch-audio-preview.py patch-history-api.py patch-diagnostics.py patch-queue.py patch-hardening-brand.py patch-production-hardening.py patch-provider-router.py
 
 RUN mkdir -p /data/downloads
 
