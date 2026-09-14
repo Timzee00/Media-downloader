@@ -1,5 +1,4 @@
 from pathlib import Path
-import re
 
 server = Path('server.js')
 text = server.read_text(encoding='utf-8')
@@ -15,8 +14,11 @@ new_formats = "const { QUALITY_FORMATS, selectCompletedOutput, cleanupJobFiles, 
 if old_formats in text:
     text = text.replace(old_formats, new_formats, 1)
 
+# Let the queue be the single admission/concurrency controller. Keep the
+# legacy counter declaration because older patch combinations may still update
+# it for bookkeeping; the old rejection gate is removed below.
 old_rate = "const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000, RATE_LIMIT_MAX = 15, MAX_CONCURRENT_JOBS = 2;\nconst rateBuckets = new Map(); let activeJobCount = 0;"
-new_rate = "const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000, RATE_LIMIT_MAX = 15;\nconst rateBuckets = new Map();"
+new_rate = "const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000, RATE_LIMIT_MAX = 15;\nconst rateBuckets = new Map(); let activeJobCount = 0;"
 if old_rate in text:
     text = text.replace(old_rate, new_rate, 1)
 
@@ -28,14 +30,6 @@ old_create = "  activeJobCount++;\n  processJob(id).catch(async error => { const
 new_create = "  processJob(id).catch(async error => { const current = getJob(id); if (!current) return; const friendlyError = normalizeDownloadError(error); diagLog('job_failed', { jobId: id, providerPlatform: providerRouter.classifyPlatform(current.url), detail: compactDetail(error.message || error) }); cleanupJobFiles(DOWNLOAD_DIR, id); current.status = 'failed'; current.error = truncate(friendlyError); await upsertJob(current); });"
 if old_create in text:
     text = text.replace(old_create, new_create, 1)
-
-# Earlier patches can leave the obsolete counter inline with other statements.
-# Remove the obsolete concurrency counter without disturbing surrounding code.
-text = re.sub(r'activeJobCount\+\+;\s*', '', text)
-text = re.sub(r'activeJobCount--;\s*', '', text)
-text = text.replace('let activeJobCount = 0;', '')
-if 'activeJobCount' in text:
-    raise SystemExit('Obsolete activeJobCount reference remains after queue hardening')
 
 old_photo = "    const result = await processTikTokPhotoJob(job, id, photo);"
 new_photo = "    const result = await downloadJobQueue.add(() => processTikTokPhotoJob(job, id, photo), { urlHost: safeHost(job.url), operation: 'photo-download', providerPlatform: 'tiktok' });"
