@@ -48,8 +48,9 @@ RUN npm install --omit=dev
 
 COPY downloader/ ./
 
-# Apply the existing platform/UI compatibility patches and universal diagnostics.
-# The provider router is part of the runtime backend and is loaded by patch-diagnostics.py.
+# Apply the existing platform/UI compatibility patches, provider routing,
+# and bounded job queue. Keep the patch order explicit because diagnostics
+# creates the runYtDlp download hook that queue patch wraps.
 RUN python3 patch-tiktok.py \
     && python3 patch-runtime.py \
     && python3 patch-stage-ui.py \
@@ -60,9 +61,12 @@ RUN python3 patch-tiktok.py \
     && python3 patch-audio-preview.py \
     && python3 patch-history-api.py \
     && python3 patch-diagnostics.py \
+    && python3 patch-queue.py \
     && node --check server.js \
     && node --check provider-router.js \
-    && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py patch-preview.py patch-photo-audio.py patch-tiktok-special.py patch-tiktok-photo-disable.py patch-audio-preview.py patch-history-api.py patch-diagnostics.py patch-provider-router.py
+    && node --check queue-manager.js \
+    && node --test provider-router.test.js queue-manager.test.js \
+    && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py patch-preview.py patch-photo-audio.py patch-tiktok-special.py patch-tiktok-photo-disable.py patch-audio-preview.py patch-history-api.py patch-diagnostics.py patch-queue.py patch-provider-router.py
 
 RUN mkdir -p /data/downloads
 
