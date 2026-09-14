@@ -3,22 +3,17 @@ from pathlib import Path
 server = Path('server.js')
 text = server.read_text(encoding='utf-8')
 
-# Import the reusable format/output/error helpers once.
 if "const downloadUtils = require('./download-utils');" not in text:
     marker = "const providerRouter = require('./provider-router');"
     if marker not in text:
         raise SystemExit('Provider router import marker not found')
     text = text.replace(marker, marker + "\nconst downloadUtils = require('./download-utils');", 1)
 
-# Replace the simple format map with format selection that prefers common
-# MP4/M4A combinations while retaining safe fallbacks for other sites.
 old_formats = "const QUALITY_FORMATS = { best: 'bestvideo+bestaudio/best', '2160p': 'bestvideo[height<=2160]+bestaudio/best[height<=2160]', '1440p': 'bestvideo[height<=1440]+bestaudio/best[height<=1440]', '1080p': 'bestvideo[height<=1080]+bestaudio/best[height<=1080]', '720p': 'bestvideo[height<=720]+bestaudio/best[height<=720]', '480p': 'bestvideo[height<=480]+bestaudio/best[height<=480]', '360p': 'bestvideo[height<=360]+bestaudio/best[height<=360]' };"
 new_formats = "const { QUALITY_FORMATS, selectCompletedOutput, cleanupJobFiles, normalizeDownloadError } = downloadUtils;"
 if old_formats in text:
     text = text.replace(old_formats, new_formats, 1)
 
-# Let the queue be the single concurrency controller. The old active-job gate
-# rejected requests before they could enter the bounded queue.
 old_rate = "const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000, RATE_LIMIT_MAX = 15, MAX_CONCURRENT_JOBS = 2;\nconst rateBuckets = new Map(); let activeJobCount = 0;"
 new_rate = "const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000, RATE_LIMIT_MAX = 15;\nconst rateBuckets = new Map();"
 if old_rate in text:
@@ -33,20 +28,24 @@ new_create = "  processJob(id).catch(async error => { const current = getJob(id)
 if old_create in text:
     text = text.replace(old_create, new_create, 1)
 
-# Put TikTok photo processing through the same bounded queue as yt-dlp jobs.
+# Earlier patches can leave the obsolete counter in a separate statement.
+# The queue is now the sole concurrency controller, so remove every leftover
+# increment/decrement and fail the build if any reference remains.
+for statement in ("  activeJobCount++;\n", "  activeJobCount--;\n", "activeJobCount++;\n", "activeJobCount--;\n"):
+    text = text.replace(statement, "")
+if 'activeJobCount' in text:
+    raise SystemExit('Obsolete activeJobCount reference remains after queue hardening')
+
 old_photo = "    const result = await processTikTokPhotoJob(job, id, photo);"
 new_photo = "    const result = await downloadJobQueue.add(() => processTikTokPhotoJob(job, id, photo), { urlHost: safeHost(job.url), operation: 'photo-download', providerPlatform: 'tiktok' });"
 if old_photo in text:
     text = text.replace(old_photo, new_photo, 1)
 
-# Use the helper to select a completed output instead of the first matching
-# directory entry; partial/temp files are ignored and type is respected.
 old_files = "  const files = fs.readdirSync(DOWNLOAD_DIR).filter(file =>\n    (file.startsWith(id) || file.startsWith(`${id}-fallback`)) &&\n    !file.endsWith('.part') && !file.endsWith('.ytdl') && !file.endsWith('.download')\n  );\n  if (!files.length) throw new Error('Download finished but no output file was found.');\n  const finalFile = files[0];\n  const fullPath = path.join(DOWNLOAD_DIR, finalFile);"
 new_files = "  const selectedOutput = selectCompletedOutput(DOWNLOAD_DIR, id, job.type);\n  if (!selectedOutput) throw new Error('Download finished but no completed output file was found.');\n  const finalFile = selectedOutput.name;\n  const fullPath = selectedOutput.fullPath;"
 if old_files in text:
     text = text.replace(old_files, new_files, 1)
 
-# Recover jobs that were marked processing when the container restarted.
 if 'function recoverInterruptedJobs()' not in text:
     marker = "const PORT = Number(process.env.PORT || 3000);"
     recovery = r'''async function recoverInterruptedJobs() {
