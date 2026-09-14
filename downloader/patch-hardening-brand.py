@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 server = Path('server.js')
 text = server.read_text(encoding='utf-8')
@@ -28,11 +29,11 @@ new_create = "  processJob(id).catch(async error => { const current = getJob(id)
 if old_create in text:
     text = text.replace(old_create, new_create, 1)
 
-# Earlier patches can leave the obsolete counter in a separate statement.
-# The queue is now the sole concurrency controller, so remove every leftover
-# increment/decrement and fail the build if any reference remains.
-for statement in ("  activeJobCount++;\n", "  activeJobCount--;\n", "activeJobCount++;\n", "activeJobCount--;\n"):
-    text = text.replace(statement, "")
+# Earlier patches can leave the obsolete counter inline with other statements.
+# Remove the obsolete concurrency counter without disturbing surrounding code.
+text = re.sub(r'activeJobCount\+\+;\s*', '', text)
+text = re.sub(r'activeJobCount--;\s*', '', text)
+text = text.replace('let activeJobCount = 0;', '')
 if 'activeJobCount' in text:
     raise SystemExit('Obsolete activeJobCount reference remains after queue hardening')
 
