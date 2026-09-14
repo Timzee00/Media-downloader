@@ -1,8 +1,12 @@
 FROM node:22-slim
 
+# Deno is yt-dlp's recommended JavaScript runtime for current YouTube EJS.
+# Use the official Deno binary image so we don't rely on an installer script.
+COPY --from=denoland/deno:bin-2.9.6 /deno /usr/local/bin/deno
+
 # yt-dlp needs Python; ffmpeg is required for merging video+audio and audio extraction.
 # curl_cffi gives yt-dlp browser impersonation support required by some sites such as TikTok.
-# Node 22 is also required by current yt-dlp-ejs releases for YouTube challenge solving.
+# Node 22 is also supported by current yt-dlp-ejs releases for YouTube challenge solving.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
@@ -16,12 +20,15 @@ RUN pip3 install --no-cache-dir --break-system-packages -U "yt-dlp[default,curl-
     && pip3 install --no-cache-dir --break-system-packages -U "bgutil-ytdlp-pot-provider==2.0.0" \
     && pip3 install --no-cache-dir --break-system-packages -U you-get gallery-dl \
     && yt-dlp --version \
+    && deno --version \
+    && node --version \
     && you-get --version \
     && gallery-dl --version
 
-# Keep Node/EJS enabled and let current yt-dlp choose its normal YouTube clients.
-# web_embedded is an additional fallback that does not require a GVS PO token,
-# while the BgUtils provider remains available for clients that do require one.
+# Let yt-dlp use its normal YouTube client selection with Deno available as the
+# preferred JS runtime and Node available as an explicit secondary runtime.
+# web_embedded remains an additional supported client path, while BgUtils is
+# available to yt-dlp for supported PO-token requests.
 RUN printf '%s\n' \
     '--js-runtimes node' \
     '--extractor-retries 3' \
@@ -31,7 +38,6 @@ RUN printf '%s\n' \
     '--extractor-args "youtube:player_client=default,web_embedded"' \
     '--extractor-args "youtubepot-bgutilhttp:base_url=http://127.0.0.1:4416"' \
     > /etc/yt-dlp.conf \
-    && node --version \
     && yt-dlp --version
 
 # Build the current BgUtils PO-token provider. The HTTP provider is kept running
@@ -65,7 +71,7 @@ RUN python3 patch-tiktok.py \
     && node --check server.js \
     && node --check provider-router.js \
     && node --check queue-manager.js \
-    && node --test provider-router.test.js queue-manager.test.js \
+    && node --test provider-router.test.js queue-manager.test.js platform-providers.test.js \
     && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py patch-preview.py patch-photo-audio.py patch-tiktok-special.py patch-tiktok-photo-disable.py patch-audio-preview.py patch-history-api.py patch-diagnostics.py patch-queue.py patch-provider-router.py
 
 RUN mkdir -p /data/downloads
