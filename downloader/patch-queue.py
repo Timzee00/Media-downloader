@@ -11,7 +11,7 @@ if 'const downloadJobQueue = require(\'./queue-manager\');' not in text:
     text = text.replace(marker, replacement, 1)
 
 old = '  await runYtDlp(args);'
-new = "  await downloadJobQueue.add(() => runYtDlp(args), { urlHost: safeHost(url), operation: 'download' });"
+new = "  await downloadJobQueue.add(() => runYtDlp(args), { urlHost: safeHost(providerRouter.extractUrl(args) || ''), operation: 'download' });"
 if old in text:
     text = text.replace(old, new, 1)
 
