@@ -29,7 +29,7 @@ if old_gate in text:
     text = text.replace(old_gate, "  const queueState = downloadJobQueue.snapshot();\n  if (!queueState.accepting && queueState.running >= queueState.concurrency) return res.status(429).json({ error: 'Download queue is full — please try again in a moment.' });\n", 1)
 
 old_create = "  activeJobCount++;\n  processJob(id).catch(async error => { const current = getJob(id); if (!current) return; current.status = 'failed'; current.error = truncate(error.message); await upsertJob(current); }).finally(() => { activeJobCount--; });"
-new_create = "  processJob(id).catch(async error => { const current = getJob(id); if (!current) return; cleanupJobFiles(DOWNLOAD_DIR, id); current.status = 'failed'; current.error = truncate(normalizeDownloadError(error)); await upsertJob(current); });"
+new_create = "  processJob(id).catch(async error => { const current = getJob(id); if (!current) return; const friendlyError = normalizeDownloadError(error); diagLog('job_failed', { jobId: id, providerPlatform: providerRouter.classifyPlatform(current.url), detail: compactDetail(error.message || error) }); cleanupJobFiles(DOWNLOAD_DIR, id); current.status = 'failed'; current.error = truncate(friendlyError); await upsertJob(current); });"
 if old_create in text:
     text = text.replace(old_create, new_create, 1)
 
@@ -45,12 +45,6 @@ old_files = "  const files = fs.readdirSync(DOWNLOAD_DIR).filter(file =>\n    (f
 new_files = "  const selectedOutput = selectCompletedOutput(DOWNLOAD_DIR, id, job.type);\n  if (!selectedOutput) throw new Error('Download finished but no completed output file was found.');\n  const finalFile = selectedOutput.name;\n  const fullPath = selectedOutput.fullPath;"
 if old_files in text:
     text = text.replace(old_files, new_files, 1)
-
-# Improve user-facing provider errors while preserving detailed diagnostics in logs.
-old_top_catch = "processJob(id).catch(async error => { const current = getJob(id); if (!current) return; cleanupJobFiles(DOWNLOAD_DIR, id); current.status = 'failed'; current.error = truncate(normalizeDownloadError(error)); await upsertJob(current); });"
-new_top_catch = "processJob(id).catch(async error => { const current = getJob(id); if (!current) return; const friendlyError = normalizeDownloadError(error); diagLog('job_failed', { jobId: id, providerPlatform: providerRouter.classifyPlatform(current.url), detail: compactDetail(error.message || error) }); cleanupJobFiles(DOWNLOAD_DIR, id); current.status = 'failed'; current.error = truncate(friendlyError); await upsertJob(current); });"
-if old_top_catch in text:
-    text = text.replace(old_top_catch, new_top_catch, 1)
 
 # Recover jobs that were marked processing when the container restarted.
 if 'function recoverInterruptedJobs()' not in text:
@@ -87,11 +81,12 @@ if 'class="brand-footer"' not in html:
     if css_marker not in html:
         raise SystemExit('Frontend CSS marker not found')
     html = html.replace(css_marker, css_marker + '\n' + css, 1)
-    body_marker = '  </main>\n</div>\n<script>'
-    footer = '  </main>\n  <footer class="brand-footer" aria-label="Powered by Timzee Corp">Powered by <strong>Timzee Corp</strong></footer>\n</div>\n<script>'
-    if body_marker not in html:
-        raise SystemExit('Frontend body marker not found')
-    html = html.replace(body_marker, footer, 1)
+
+    footer = '  <footer class="brand-footer" aria-label="Powered by Timzee Corp">Powered by <strong>Timzee Corp</strong></footer>\n'
+    if '</body>' not in html:
+        raise SystemExit('Frontend closing body marker not found')
+    html = html.replace('</body>', footer + '</body>', 1)
+
 index.write_text(html, encoding='utf-8')
 
 print('Download hardening and Timzee Corp branding patch applied')
