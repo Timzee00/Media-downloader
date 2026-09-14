@@ -25,10 +25,8 @@ RUN pip3 install --no-cache-dir --break-system-packages -U "yt-dlp[default,curl-
     && you-get --version \
     && gallery-dl --version
 
-# Let yt-dlp use its normal YouTube client selection with Deno available as the
-# preferred JS runtime and Node available as an explicit secondary runtime.
-# web_embedded remains an additional supported client path, while BgUtils is
-# available to yt-dlp for supported PO-token requests.
+# Deno is enabled by default by current yt-dlp; Node is explicitly enabled as
+# a secondary runtime. Keep normal YouTube client selection and BgUtils enabled.
 RUN printf '%s\n' \
     '--js-runtimes node' \
     '--extractor-retries 3' \
@@ -54,9 +52,8 @@ RUN npm install --omit=dev
 
 COPY downloader/ ./
 
-# Apply the existing platform/UI compatibility patches, provider routing,
-# and bounded job queue. Keep the patch order explicit because diagnostics
-# creates the runYtDlp download hook that queue patch wraps.
+# Apply platform/UI compatibility patches, provider routing, diagnostics,
+# bounded queueing, and the final download hardening/branding pass.
 RUN python3 patch-tiktok.py \
     && python3 patch-runtime.py \
     && python3 patch-stage-ui.py \
@@ -68,11 +65,13 @@ RUN python3 patch-tiktok.py \
     && python3 patch-history-api.py \
     && python3 patch-diagnostics.py \
     && python3 patch-queue.py \
+    && python3 patch-hardening-brand.py \
     && node --check server.js \
     && node --check provider-router.js \
     && node --check queue-manager.js \
-    && node --test provider-router.test.js queue-manager.test.js platform-providers.test.js \
-    && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py patch-preview.py patch-photo-audio.py patch-tiktok-special.py patch-tiktok-photo-disable.py patch-audio-preview.py patch-history-api.py patch-diagnostics.py patch-queue.py patch-provider-router.py
+    && node --check download-utils.js \
+    && node --test provider-router.test.js queue-manager.test.js platform-providers.test.js download-utils.test.js \
+    && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py patch-preview.py patch-photo-audio.py patch-tiktok-special.py patch-tiktok-photo-disable.py patch-audio-preview.py patch-history-api.py patch-diagnostics.py patch-queue.py patch-hardening-brand.py patch-provider-router.py
 
 RUN mkdir -p /data/downloads
 
@@ -84,6 +83,5 @@ RUN chmod +x /app/start.sh
 ENV PORT=3000
 EXPOSE 3000
 
-# Use the dedicated script instead of a long JSON shell command. This avoids
-# Render/Docker misparsing the command as an executable named "[sh,".
+# Use the dedicated script instead of a long JSON shell command.
 CMD ["/app/start.sh"]
