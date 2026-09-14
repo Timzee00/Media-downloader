@@ -11,6 +11,11 @@ const {
   normalizeSnapchatResponse,
   mediaTypeFromSnapchatType,
 } = require('./snapchat-provider');
+const {
+  isAllowedInstagramMediaUrl,
+  normalizeInstagramResponse,
+  normalizeDownloadType,
+} = require('./instagram-provider');
 
 test('classifies supported platforms', () => {
   assert.equal(classifyPlatform('https://www.youtube.com/watch?v=abc'), 'youtube');
@@ -106,4 +111,56 @@ test('maps Snapchat sample media types without trusting unknown values', () => {
   assert.equal(mediaTypeFromSnapchatType(1), 'video');
   assert.equal(mediaTypeFromSnapchatType(0), 'image');
   assert.equal(mediaTypeFromSnapchatType(99), 'media');
+});
+
+test('normalizes the supplied Instagram response shape', () => {
+  const normalized = normalizeInstagramResponse({
+    success: true,
+    platform: 'instagram',
+    thumbnail: 'https://www.instagram.com/p/example/media/?size=l',
+    title: 'Example post',
+    downloads: [
+      {
+        type: 'image',
+        url: 'https://cdninstagram.com/media/photo.jpg',
+      },
+      {
+        type: 'video',
+        quality: 'original',
+        url: 'https://scontent.cdninstagram.com/media/video.mp4',
+      },
+      {
+        type: 'video',
+        url: 'https://evil.example.com/video.mp4',
+      },
+    ],
+  });
+
+  assert.equal(normalized.success, true);
+  assert.equal(normalized.platform, 'instagram');
+  assert.equal(normalized.title, 'Example post');
+  assert.equal(normalized.count, 2);
+  assert.equal(normalized.downloads[0].type, 'image');
+  assert.equal(normalized.downloads[0].filename, 'photo.jpg');
+  assert.equal(normalized.downloads[1].quality, 'original');
+});
+
+test('Instagram URL validation is HTTPS and host based', () => {
+  assert.equal(isAllowedInstagramMediaUrl('https://cdninstagram.com/media/file.mp4'), true);
+  assert.equal(isAllowedInstagramMediaUrl('https://www.instagram.com/p/abc/'), true);
+  assert.equal(isAllowedInstagramMediaUrl('https://example.com/file.mp4'), false);
+  assert.equal(isAllowedInstagramMediaUrl('javascript:alert(1)'), false);
+  assert.equal(
+    isAllowedInstagramMediaUrl('https://media.example.net/file.mp4', ['media.example.net']),
+    true
+  );
+});
+
+test('normalizes Instagram media types conservatively', () => {
+  assert.equal(normalizeDownloadType('image'), 'image');
+  assert.equal(normalizeDownloadType('photo'), 'image');
+  assert.equal(normalizeDownloadType('video'), 'video');
+  assert.equal(normalizeDownloadType('reel'), 'video');
+  assert.equal(normalizeDownloadType('audio'), 'audio');
+  assert.equal(normalizeDownloadType('something-new'), 'media');
 });
