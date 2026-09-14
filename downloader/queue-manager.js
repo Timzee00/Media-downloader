@@ -55,23 +55,30 @@ class JobQueue {
       });
 
       Promise.resolve()
-        .then(item.task)
+        .then(() => item.task())
         .then(result => {
-          item.resolve(result);
-          this.onEvent('succeeded', { id: item.id, pending: this.pending.length, running: this.running, ...item.meta });
+          item.result = result;
+          item.succeeded = true;
         })
         .catch(error => {
-          item.reject(error);
-          this.onEvent('failed', {
-            id: item.id,
-            pending: this.pending.length,
-            running: this.running,
-            error: String(error?.message || error),
-            ...item.meta,
-          });
+          item.error = error;
+          item.succeeded = false;
         })
         .finally(() => {
           this.running -= 1;
+          if (item.succeeded) {
+            this.onEvent('succeeded', { id: item.id, pending: this.pending.length, running: this.running, ...item.meta });
+            item.resolve(item.result);
+          } else {
+            this.onEvent('failed', {
+              id: item.id,
+              pending: this.pending.length,
+              running: this.running,
+              error: String(item.error?.message || item.error),
+              ...item.meta,
+            });
+            item.reject(item.error);
+          }
           this.#drain();
         });
     }
