@@ -6,7 +6,7 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test provider-router.test.js"
+    "test": "node --test provider-router.test.js queue-manager.test.js"
   },
   "dependencies": {
     "cookie-parser": "^1.4.6",
