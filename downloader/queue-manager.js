@@ -35,8 +35,10 @@ class JobQueue {
   snapshot() {
     return {
       concurrency: this.concurrency,
+      maxPending: this.maxPending,
       running: this.running,
       pending: this.pending.length,
+      total: this.running + this.pending.length,
       availableSlots: this.availableSlots,
       accepting: this.pending.length < this.maxPending,
     };
