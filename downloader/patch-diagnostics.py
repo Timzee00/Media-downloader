@@ -9,6 +9,7 @@ if "UNIVERSAL DOWNLOADER DIAGNOSTICS" not in text:
 // ---------- UNIVERSAL DOWNLOADER DIAGNOSTICS / ENGINE FALLBACKS ----------
 const ENGINE_TIMEOUT_MS = Number(process.env.DOWNLOADER_ENGINE_TIMEOUT_MS || 180000);
 const DIAGNOSTIC_MAX_DETAIL = 1600;
+const providerRouter = require('./provider-router');
 
 function safeHost(value) {
   try { return new URL(value).hostname; } catch { return 'unknown'; }
@@ -64,8 +65,12 @@ function runExternalEngine(command, args, meta = {}) {
   });
 }
 
-async function runYouGet(url, destinationPrefix) {
-  return runExternalEngine('you-get', ['-o', DOWNLOAD_DIR, '-O', destinationPrefix, url], { urlHost: safeHost(url), fallback: true });
+async function runYouGet(url, destinationPrefix, meta = {}) {
+  return runExternalEngine('you-get', ['-o', DOWNLOAD_DIR, '-O', destinationPrefix, url], {
+    urlHost: safeHost(url),
+    fallback: true,
+    ...meta,
+  });
 }
 
 async function probeBgutilProvider() {
@@ -100,10 +105,12 @@ async function universalDiagnostics() {
     platform: process.platform,
     engines,
     bgutil,
-    strategy: {
+    routing: {
+      providerRouter: 'enabled',
+      supportedPlatforms: ['youtube', 'tiktok', 'instagram', 'facebook', 'x', 'threads', 'reddit', 'generic'],
       primary: 'yt-dlp',
       videoFallback: 'you-get',
-      galleryEngine: 'gallery-dl (installed; available for gallery/image routing)',
+      galleryEngine: 'gallery-dl (installed; reserved for future gallery/image routing)',
       youtubeClients: 'default,web_embedded',
       poTokenProvider: 'bgutil-ytdlp-pot-provider HTTP'
     }
@@ -117,8 +124,22 @@ if (!global.__MEDIA_DOWNLOADER_DIAG_MIDDLEWARE__) {
     const requestId = crypto.randomUUID();
     req.diagRequestId = requestId;
     const bodyUrl = req.body && typeof req.body.url === 'string' ? req.body.url : null;
-    diagLog('request_start', { requestId, method: req.method, path: req.path, urlHost: bodyUrl ? safeHost(bodyUrl) : null });
-    res.on('finish', () => diagLog('request_finish', { requestId, method: req.method, path: req.path, status: res.statusCode, urlHost: bodyUrl ? safeHost(bodyUrl) : null }));
+    const providerPlatform = bodyUrl ? providerRouter.classifyPlatform(bodyUrl) : null;
+    diagLog('request_start', {
+      requestId,
+      method: req.method,
+      path: req.path,
+      urlHost: bodyUrl ? safeHost(bodyUrl) : null,
+      providerPlatform,
+    });
+    res.on('finish', () => diagLog('request_finish', {
+      requestId,
+      method: req.method,
+      path: req.path,
+      status: res.statusCode,
+      urlHost: bodyUrl ? safeHost(bodyUrl) : null,
+      providerPlatform,
+    }));
     next();
   });
 }
@@ -134,26 +155,24 @@ app.get('/api/diagnostics', requireAuth, async (req, res) => {
     text = text.replace(marker, diagnostic_block + marker, 1)
 
 old_run = "function runYtDlp(args) { return new Promise((resolve, reject) => { const proc = spawn('yt-dlp', args); let stdout = ''; let stderr = ''; proc.stdout.on('data', data => { stdout += data.toString(); }); proc.stderr.on('data', data => { stderr += data.toString(); }); proc.on('close', code => { if (code === 0) return resolve({ stdout, stderr }); reject(new Error(stderr || `yt-dlp exited with code ${code}`)); }); proc.on('error', reject); }); }"
-new_run = "function runYtDlp(args) { return runExternalEngine('yt-dlp', args); }"
+new_run = r'''function runYtDlp(args) {
+  const url = providerRouter.extractUrl(args);
+  const operation = args.includes('-j') || args.includes('--dump-json') ? 'metadata' : 'download';
+  return providerRouter.runProviderPlan({
+    url,
+    args,
+    operation,
+    runEngine: runExternalEngine,
+    runYouGet: (targetUrl, destinationPrefix, meta) => runYouGet(targetUrl, destinationPrefix, meta),
+    destinationPrefix: args[args.indexOf('-o') + 1] || null,
+    meta: { urlHost: safeHost(url), operation },
+  });
+}'''
 if old_run in text:
     text = text.replace(old_run, new_run, 1)
 
 old_download = "  await runYtDlp(args);\n  const files = fs.readdirSync(DOWNLOAD_DIR).filter(file => file.startsWith(id));"
-new_download = r'''  try {
-    await runYtDlp(args);
-  } catch (primaryError) {
-    // Keep yt-dlp as the broad primary engine, but retry video downloads with
-    // an independent extractor so a single extractor outage does not break
-    // the whole multi-site service.
-    if (job.type !== 'video') throw primaryError;
-    diagLog('fallback_start', { requestId: job.id, from: 'yt-dlp', to: 'you-get', urlHost: safeHost(job.url), reason: compactDetail(primaryError.message, 700) });
-    try {
-      await runYouGet(job.url, `${id}-fallback`);
-    } catch (fallbackError) {
-      diagLog('fallback_failure', { requestId: job.id, from: 'yt-dlp', to: 'you-get', urlHost: safeHost(job.url), detail: compactDetail(fallbackError.message, 1000) });
-      throw new Error(`Primary engine failed and fallback engine also failed. Primary: ${compactDetail(primaryError.message, 500)} Fallback: ${compactDetail(fallbackError.message, 500)}`);
-    }
-  }
+new_download = r'''  await runYtDlp(args);
   const files = fs.readdirSync(DOWNLOAD_DIR).filter(file =>
     (file.startsWith(id) || file.startsWith(`${id}-fallback`)) &&
     !file.endsWith('.part') && !file.endsWith('.ytdl') && !file.endsWith('.download')
@@ -169,8 +188,13 @@ new_info = r'''    try {
       return res.json({ title: info.title, thumbnail: info.thumbnail, duration: info.duration, uploader: info.uploader, extractor: info.extractor, contentType: 'video', availableHeights: [...new Set((info.formats || []).map(format => format.height).filter(Boolean))].sort((a, b) => b - a) });
     } catch (primaryError) {
       // Metadata is helpful but should not prevent the actual download route
-      // from trying its independent fallback engine.
-      diagLog('metadata_degraded', { urlHost: safeHost(url), primary: 'yt-dlp', detail: compactDetail(primaryError.message, 900) });
+      // from trying the configured provider plan.
+      diagLog('metadata_degraded', {
+        urlHost: safeHost(url),
+        providerPlatform: providerRouter.classifyPlatform(url),
+        primary: 'yt-dlp',
+        detail: compactDetail(primaryError.message, 900),
+      });
       return res.json({
         title: `Media from ${safeHost(url)}`,
         thumbnail: null,
@@ -185,4 +209,4 @@ if old_info in text:
     text = text.replace(old_info, new_info, 1)
 
 path.write_text(text, encoding="utf-8")
-print("Universal downloader diagnostics patch applied")
+print("Universal downloader diagnostics patch integrated with provider router")
