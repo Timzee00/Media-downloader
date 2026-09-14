@@ -65,5 +65,6 @@ RUN mkdir -p /data/downloads
 ENV PORT=3000
 EXPOSE 3000
 
-# Keep provider diagnostics visible in Render and wait until the provider is ready before starting the app.
-CMD ["sh", "-c", "set -eu; node /opt/bgutil-ytdlp-pot-provider/server/build/main.js & provider_pid=$!; trap 'kill $provider_pid 2>/dev/null || true' TERM INT EXIT; ready=0; for i in $(seq 1 30); do if curl -fsS http://127.0.0.1:4416/ping >/dev/null 2>&1; then echo '[bgutil] provider ready on 127.0.0.1:4416'; ready=1; break; fi; if ! kill -0 $provider_pid 2>/dev/null; then echo '[bgutil] provider exited during startup'; wait $provider_pid || true; exit 1; fi; sleep 1; done; if [ \"$ready\" -ne 1 ]; then echo '[bgutil] provider did not become ready within 30s'; exit 1; fi; exec node server.js"]
+# Use a dedicated startup script so Docker/Render cannot misparse a long shell CMD.
+RUN chmod +x /app/start.sh
+CMD ["/app/start.sh"]
