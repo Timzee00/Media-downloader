@@ -16,6 +16,7 @@ const PLATFORM_RULES = [
   { id: 'x', hosts: ['x.com', 'www.x.com', 'twitter.com', 'www.twitter.com'] },
   { id: 'threads', hosts: ['threads.net', 'www.threads.net'] },
   { id: 'reddit', hosts: ['reddit.com', 'www.reddit.com', 'old.reddit.com', 'redd.it'] },
+  { id: 'snapchat', hosts: ['snapchat.com', 'www.snapchat.com'] },
 ];
 
 function normalizeHost(hostname) {
