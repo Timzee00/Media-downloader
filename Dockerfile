@@ -4,9 +4,6 @@ FROM node:22-slim
 # Use the official Deno binary image so we don't rely on an installer script.
 COPY --from=denoland/deno:bin-2.9.6 /deno /usr/local/bin/deno
 
-# yt-dlp needs Python; ffmpeg is required for merging video+audio and audio extraction.
-# curl_cffi gives yt-dlp browser impersonation support required by some sites such as TikTok.
-# Node 22 is also supported by current yt-dlp-ejs releases for YouTube challenge solving.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
@@ -25,8 +22,6 @@ RUN pip3 install --no-cache-dir --break-system-packages -U "yt-dlp[default,curl-
     && you-get --version \
     && gallery-dl --version
 
-# Deno is enabled by default by current yt-dlp; Node is explicitly enabled as
-# a secondary runtime. Keep normal YouTube client selection and BgUtils enabled.
 RUN printf '%s\n' \
     '--js-runtimes node' \
     '--extractor-retries 3' \
@@ -38,8 +33,6 @@ RUN printf '%s\n' \
     > /etc/yt-dlp.conf \
     && yt-dlp --version
 
-# Build the current BgUtils PO-token provider. The HTTP provider is kept running
-# beside the downloader so yt-dlp can request fresh per-video tokens when needed.
 RUN git clone --depth 1 --branch 2.0.0 https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git /opt/bgutil-ytdlp-pot-provider \
     && cd /opt/bgutil-ytdlp-pot-provider/server \
     && npm ci --no-audit --no-fund \
@@ -52,8 +45,8 @@ RUN npm install --omit=dev
 
 COPY downloader/ ./
 
-# Apply platform/UI compatibility patches, provider routing, diagnostics,
-# bounded queueing, and the final production hardening/branding pass.
+# Apply all existing compatibility/stability patches first, then add the
+# optional external provider against the final transformed server.js.
 RUN python3 patch-tiktok.py \
     && python3 patch-runtime.py \
     && python3 patch-stage-ui.py \
@@ -66,6 +59,7 @@ RUN python3 patch-tiktok.py \
     && python3 patch-queue.py \
     && python3 patch-hardening-brand.py \
     && python3 patch-production-hardening.py \
+    && python3 patch-provider-router.py \
     && node --check server.js \
     && node --check provider-router.js \
     && node --check queue-manager.js \
@@ -74,14 +68,9 @@ RUN python3 patch-tiktok.py \
     && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py patch-preview.py patch-photo-audio.py patch-tiktok-special.py patch-audio-preview.py patch-history-api.py patch-diagnostics.py patch-queue.py patch-hardening-brand.py patch-production-hardening.py patch-provider-router.py
 
 RUN mkdir -p /data/downloads
-
-# Copy the dedicated startup script explicitly so the active root Dockerfile
-# always contains the exact startup entrypoint used by Render.
 COPY downloader/start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 
 ENV PORT=3000
 EXPOSE 3000
-
-# Use the dedicated script instead of a long JSON shell command.
 CMD ["/app/start.sh"]
