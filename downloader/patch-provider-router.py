@@ -17,9 +17,14 @@ helper = r'''async function downloadExternalProvider(job) {
   const contentType = response.headers.get('content-type') || 'video/mp4';
   const extension = contentType.includes('webm') ? 'webm' : 'mp4';
   const filePath = path.join(DOWNLOAD_DIR, `${job.id}.${extension}`);
+  const contentLength = Number(response.headers.get('content-length') || 0);
+  const maxBytes = Number(process.env.MAX_DOWNLOAD_SIZE_MB || 1024) * 1024 * 1024;
+  if (contentLength > maxBytes) throw new Error('External provider returned a file larger than the configured download limit.');
   const buffer = Buffer.from(await response.arrayBuffer());
+  if (buffer.length > maxBytes) throw new Error('External provider returned a file larger than the configured download limit.');
   fs.writeFileSync(filePath, buffer);
-  return { filePath: path.basename(filePath), fileSize: buffer.length };
+  const metadata = { ...(submitted.metadata || {}), ...(completed.metadata || {}) };
+  return { filePath: path.basename(filePath), fileSize: buffer.length, metadata };
 }
 
 '''
@@ -31,12 +36,14 @@ insert = r'''  const useExternal = String(process.env.VIDKRAKEN_ENABLED || '').t
     try {
       const external = await downloadExternalProvider(job);
       const updated = getJob(id);
+      const metadata = external.metadata || {};
       updated.status = 'done';
       updated.provider = 'external';
-      updated.title = info.title || 'Downloaded video';
-      updated.thumbnail = info.thumbnail || null;
-      updated.duration = info.duration || null;
-      updated.sourcePlatform = info.extractor || null;
+      updated.title = metadata.title || 'Downloaded video';
+      updated.thumbnail = metadata.thumbnail || null;
+      updated.duration = metadata.duration || null;
+      updated.uploader = metadata.uploader || null;
+      updated.sourcePlatform = metadata.extractor || null;
       updated.filePath = external.filePath;
       updated.fileSize = external.fileSize;
       await upsertJob(updated);
