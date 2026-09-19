@@ -147,7 +147,9 @@ print('CuriousAPI fallback patch applied')
 # extractor fails. Return a safe generic video classification so the client can
 # continue to /api/download, where the full provider fallback chain runs.
 info_start = s.find("app.post('/api/info', requireAuth, rateLimit, async (req, res) => {")
-quality_pos = s.find("\nconst QUALITY_FORMATS", info_start)
+quality_pos = s.find("\nconst { QUALITY_FORMATS", info_start)
+if info_start < 0 or quality_pos < 0:
+    quality_pos = s.find("\nconst QUALITY_FORMATS", info_start)
 if info_start < 0 or quality_pos < 0:
     quality_pos = s.find("const QUALITY_FORMATS", info_start)
 if info_start < 0 or quality_pos < 0:
