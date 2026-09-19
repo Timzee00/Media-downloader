@@ -64,7 +64,7 @@ RUN python3 patch-tiktok.py \
     && node --check provider-router.js \
     && node --check queue-manager.js \
     && node --check download-utils.js \
-    && node --test provider-router.test.js queue-manager.test.js platform-providers.test.js download-utils.test.js \
+    && node --test provider-router.test.js queue-manager.test.js platform-providers.test.js download-utils.test.js curiousapi.test.js \
     && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py patch-preview.py patch-photo-audio.py patch-tiktok-special.py patch-audio-preview.py patch-history-api.py patch-diagnostics.py patch-queue.py patch-hardening-brand.py patch-production-hardening.py patch-provider-router.py
 
 RUN mkdir -p /data/downloads
