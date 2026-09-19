@@ -69,7 +69,7 @@ function renderHistoryItems(items){
         <div class="title">${escapeHtml(item.title)}</div>
         <div class="sub">${escapeHtml(item.sourcePlatform||'')} · ${item.type==='audio'?'MP3':'Video'} · ${formatSize(item.fileSize)}</div>
         <div class="actions">
-          <a href="/files/${encodeURIComponent(item.id)}" download>Save</a>
+          <button type="button" onclick="saveHistoryItem('${String(item.id).replace(/'/g,"\\'")}')">Save</button>
           <button onclick="deleteItem('${String(item.id).replace(/'/g,"\\'")}')">Delete</button>
         </div>
       </div>
@@ -79,6 +79,17 @@ function renderHistoryItems(items){
 window.addEventListener('storage',event=>{
   if(event.key===HISTORY_STORAGE_KEY) renderHistoryItems(readHistoryCache());
 });
+async function saveHistoryItem(id){
+  const safeId=encodeURIComponent(String(id));
+  try{
+    const res=await fetch('/files/'+safeId,{method:'HEAD',cache:'no-store'});
+    if(!res.ok) throw new Error('This file is no longer available on the server.');
+    window.location.assign('/files/'+safeId);
+  }catch(error){
+    const status=document.querySelector('#statusBox');
+    if(status) status.textContent='Save failed: '+(error.message||'The file could not be downloaded.');
+  }
+}
 '''
     h=h.replace(marker,persistence+"\n"+marker,1)
 
