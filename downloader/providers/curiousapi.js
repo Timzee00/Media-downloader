@@ -149,6 +149,9 @@ async function downloadToFile(sourceUrl, destinationPath, options = {}) {
     metadata = extractMetadata(data);
     const downloadUrl = extractDownloadUrl(data);
     if (!downloadUrl) throw new Error('CuriousAPI response did not include a downloadable media URL.');
+    if (typeof options.isSafeDownloadUrl === 'function' && !(await options.isSafeDownloadUrl(downloadUrl))) {
+      throw new Error('CuriousAPI returned an unsafe download URL.');
+    }
 
     response = await fetchWithTimeout(downloadUrl, {
       headers: { Accept: 'video/*, audio/*, application/octet-stream;q=0.9, */*;q=0.5' }
