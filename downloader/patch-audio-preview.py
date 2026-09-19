@@ -7,7 +7,7 @@ html = root / 'public' / 'index.html'
 s = server.read_text(encoding='utf-8')
 
 old_response = "return res.json({ title: info.title, thumbnail: info.thumbnail, duration: info.duration, uploader: info.uploader, extractor: info.extractor, contentType: 'video', previewUrl: getPreviewUrl(info), availableHeights: [...new Set((info.formats || []).map(format => format.height).filter(Boolean))].sort((a, b) => b - a) });"
-new_response = "const hasVideo = Boolean((info.vcodec && info.vcodec !== 'none') || (info.formats || []).some(format => format && format.vcodec && format.vcodec !== 'none')); const contentType = hasVideo ? 'video' : 'audio'; return res.json({ title: info.title, thumbnail: info.thumbnail, duration: info.duration, uploader: info.uploader, extractor: info.extractor, contentType, previewUrl: contentType === 'video' ? getPreviewUrl(info) : null, availableHeights: [...new Set((info.formats || []).map(format => format.height).filter(Boolean))].sort((a, b) => b - a) });"
+new_response = "const formats = Array.isArray(info.formats) ? info.formats : []; const hasVideo = Boolean((info.vcodec && info.vcodec !== 'none') || formats.some(format => format && ((format.vcodec && format.vcodec !== 'none') || Number(format.height || 0) > 0 || String(format.mime_type || format.mimeType || '').toLowerCase().startsWith('video/')))); const hasAudio = Boolean((info.acodec && info.acodec !== 'none') || formats.some(format => format && format.acodec && format.acodec !== 'none')); const contentType = hasVideo ? 'video' : (hasAudio ? 'audio' : 'video'); return res.json({ title: info.title, thumbnail: info.thumbnail, duration: info.duration, uploader: info.uploader, extractor: info.extractor, contentType, previewUrl: contentType === 'video' ? getPreviewUrl(info) : null, availableHeights: [...new Set(formats.map(format => format.height).filter(Boolean))].sort((a, b) => b - a) });"
 if old_response not in s:
     raise SystemExit('Audio metadata response target not found')
 s = s.replace(old_response, new_response, 1)
@@ -65,5 +65,8 @@ video_branch_marker = "}else{\n        typeSelect.disabled=false;"
 if video_branch_marker in h:
     h = h.replace(video_branch_marker, "}else{\n        showPreview(data);\n        typeSelect.disabled=false;", 1)
 
+# Unknown media must never be auto-labeled audio. Only positive audio-only evidence may switch the UI to MP3 mode.
+if "contentType = hasVideo ? 'video' : (hasAudio ? 'audio' : 'video')" not in s:
+    raise SystemExit('Media type fallback rule was not installed')
 html.write_text(h, encoding='utf-8')
 print('audio-only detection and thumbnail preview rules patched')
