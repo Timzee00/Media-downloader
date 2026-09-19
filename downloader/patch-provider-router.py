@@ -141,3 +141,113 @@ else:
 
 p.write_text(s)
 print('CuriousAPI fallback patch applied')
+
+
+# The info endpoint must never become a dead-end when the primary metadata
+# extractor fails. Return a safe generic video classification so the client can
+# continue to /api/download, where the full provider fallback chain runs.
+info_start = s.find("app.post('/api/info', requireAuth, rateLimit, async (req, res) => {")
+quality_marker = "\n\nconst QUALITY_FORMATS"
+if info_start < 0 or quality_marker not in s[info_start:]:
+    raise SystemExit('metadata route target not found')
+
+info_end = s.find(quality_marker, info_start)
+fallback_info_route = r'''app.post('/api/info', requireAuth, rateLimit, async (req, res) => {
+  const { url } = req.body || {};
+  if (!url || !(await isSafeUrl(url))) {
+    return res.status(400).json({ error: 'A valid, public http(s) URL is required.' });
+  }
+
+  try {
+    const photo = await tryResolveTikTokPhoto(url);
+    if (photo) {
+      return res.json({
+        title: photo.title,
+        thumbnail: photo.thumbnail,
+        duration: null,
+        uploader: photo.uploader,
+        extractor: 'TikTok Photo',
+        contentType: 'photo',
+        imageCount: photo.imageUrls.length,
+        availableHeights: []
+      });
+    }
+
+    try {
+      const { stdout } = await runYtDlp(['-j', '--no-playlist', url]);
+      const info = JSON.parse(stdout.trim().split('\n')[0]);
+      const formats = Array.isArray(info.formats) ? info.formats : [];
+      const hasVideo = Boolean(
+        (info.vcodec && info.vcodec !== 'none') ||
+        formats.some(format => format && (
+          (format.vcodec && format.vcodec !== 'none') ||
+          Number(format.height || 0) > 0 ||
+          String(format.mime_type || format.mimeType || '').toLowerCase().startsWith('video/')
+        ))
+      );
+      const hasAudio = Boolean(
+        (info.acodec && info.acodec !== 'none') ||
+        formats.some(format => format && format.acodec && format.acodec !== 'none')
+      );
+      const contentType = hasVideo ? 'video' : (hasAudio ? 'audio' : 'video');
+
+      return res.json({
+        title: info.title,
+        thumbnail: info.thumbnail,
+        duration: info.duration,
+        uploader: info.uploader,
+        extractor: info.extractor,
+        contentType,
+        previewUrl: contentType === 'video' ? getPreviewUrl(info) : null,
+        availableHeights: [...new Set(formats.map(format => format.height).filter(Boolean))].sort((a, b) => b - a)
+      });
+    } catch (primaryError) {
+      diagLog?.('metadata_degraded', {
+        urlHost: safeHost(url),
+        providerPlatform: providerRouter.classifyPlatform(url),
+        primary: 'yt-dlp',
+        detail: truncate(primaryError.message || String(primaryError), 900),
+      });
+
+      if (String(process.env.VIDKRAKEN_ENABLED || '').toLowerCase() === 'true' &&
+          Boolean(process.env.VIDKRAKEN_API_KEY)) {
+        try {
+          const externalInfo = await vidkraken.getInfo(url);
+          const metadata = externalInfo.metadata || {};
+          if (metadata.title || metadata.thumbnail || metadata.duration || metadata.uploader || metadata.extractor) {
+            return res.json({
+              title: metadata.title || ('Media from ' + safeHost(url)),
+              thumbnail: metadata.thumbnail || null,
+              duration: metadata.duration ?? null,
+              uploader: metadata.uploader || null,
+              extractor: metadata.extractor || 'vidkraken',
+              contentType: 'video',
+              previewUrl: null,
+              availableHeights: []
+            });
+          }
+        } catch (externalInfoError) {
+          console.warn('[vidkraken-info] ' + truncate(externalInfoError.message || String(externalInfoError)));
+        }
+      }
+
+      return res.json({
+        title: 'Media from ' + safeHost(url),
+        thumbnail: null,
+        duration: null,
+        uploader: null,
+        extractor: 'metadata-unavailable',
+        contentType: 'video',
+        previewUrl: null,
+        availableHeights: []
+      });
+    }
+  } catch (error) {
+    return res.status(422).json({ error: 'Could not read that link.', detail: truncate(error.message) });
+  }
+});
+'''
+s = s[:info_start] + fallback_info_route + s[info_end:]
+
+p.write_text(s)
+print('Metadata failures now fall through to generic download handling')
