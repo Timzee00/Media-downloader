@@ -82,9 +82,11 @@ async function downloadVidKrakenProvider(job, info = {}) {
 '''
     s = s.replace(helper_needle, helper + helper_needle, 1)
 
-old_download = "  await runYtDlp(args);\n  const files = fs.readdirSync(DOWNLOAD_DIR).filter(file => file.startsWith(id));"
+old_download = "  await downloadJobQueue.add(() => runYtDlp(args), { urlHost: safeHost(providerRouter.extractUrl(args) || ''), operation: 'download' });"
+if old_download not in s:
+    old_download = "  await runYtDlp(args);"
 new_download = '''  try {
-    await runYtDlp(args);
+    await downloadJobQueue.add(() => runYtDlp(args), { urlHost: safeHost(providerRouter.extractUrl(args) || ''), operation: 'download' });
   } catch (primaryError) {
     console.warn('[yt-dlp] ' + truncate(primaryError.message));
 
@@ -132,9 +134,10 @@ new_download = '''  try {
     throw primaryError;
   }
   const files = fs.readdirSync(DOWNLOAD_DIR).filter(file => file.startsWith(id));'''
-if old_download not in s:
-    raise SystemExit('yt-dlp download target not found')
-s = s.replace(old_download, new_download, 1)
+if "downloadJobQueue.add(() => runYtDlp(args)" in s:
+    s = s.replace(old_download, new_download, 1)
+else:
+    s = s.replace(old_download, new_download, 1)
 
 p.write_text(s)
 print('CuriousAPI fallback patch applied')
