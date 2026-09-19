@@ -15,6 +15,7 @@ function metadataOf(data) {
   };
 }
 async function submitDownload(url, format = 'best') { const data = await request('/download', { method: 'POST', body: JSON.stringify({ url, format }) }); const jobId = data?.jobId || data?.job_id || data?.id; if (!jobId) throw new Error('External provider did not return a job ID.'); return { jobId: String(jobId), metadata: metadataOf(data) }; }
+async function getInfo(url) { const data = await request('/info', { method: 'POST', body: JSON.stringify({ url }) }); return { metadata: metadataOf(data), raw: data }; }
 async function getDownloadStatus(jobId) { const data = await request(`/download/${encodeURIComponent(jobId)}`); const status = statusOf(data); if (status === 'failed') throw new Error(String(data?.error || data?.message || 'External provider download failed.')); return { status, downloadUrl: urlOf(data), metadata: metadataOf(data) }; }
 async function waitForDownload(jobId) { const deadline = Date.now() + TIMEOUT_MS; let latestMetadata = {}; while (Date.now() < deadline) { const result = await getDownloadStatus(jobId); latestMetadata = { ...latestMetadata, ...Object.fromEntries(Object.entries(result.metadata || {}).filter(([, value]) => value !== null && value !== undefined && value !== '')) }; if (result.status === 'completed') { if (!result.downloadUrl) throw new Error('External provider completed without a download URL.'); return { ...result, metadata: latestMetadata }; } await new Promise(resolve => setTimeout(resolve, POLL_MS)); } throw new Error('External provider job timed out.'); }
-module.exports = { submitDownload, getDownloadStatus, waitForDownload };
+module.exports = { submitDownload, getInfo, getDownloadStatus, waitForDownload };
