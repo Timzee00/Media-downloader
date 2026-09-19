@@ -147,11 +147,13 @@ print('CuriousAPI fallback patch applied')
 # extractor fails. Return a safe generic video classification so the client can
 # continue to /api/download, where the full provider fallback chain runs.
 info_start = s.find("app.post('/api/info', requireAuth, rateLimit, async (req, res) => {")
-quality_marker = "\n\nconst QUALITY_FORMATS"
-if info_start < 0 or quality_marker not in s[info_start:]:
+quality_pos = s.find("\nconst QUALITY_FORMATS", info_start)
+if info_start < 0 or quality_pos < 0:
+    quality_pos = s.find("const QUALITY_FORMATS", info_start)
+if info_start < 0 or quality_pos < 0:
     raise SystemExit('metadata route target not found')
 
-info_end = s.find(quality_marker, info_start)
+info_end = quality_pos
 fallback_info_route = r'''app.post('/api/info', requireAuth, rateLimit, async (req, res) => {
   const { url } = req.body || {};
   if (!url || !(await isSafeUrl(url))) {
