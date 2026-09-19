@@ -14,8 +14,6 @@ if "./providers/curiousapi" not in s:
         + "const vidkraken = require('./providers/vidkraken');\n",
         1,
     )
-elif "./providers/vidkraken" not in s:
-    s = s.replace(import_needle, import_needle + "const vidkraken = require('./providers/vidkraken');\n", 1)
 
 helper_needle = "// ---------- Download ----------\n"
 if "async function downloadCuriousApiProvider" not in s:
@@ -23,13 +21,11 @@ if "async function downloadCuriousApiProvider" not in s:
         raise SystemExit('download marker not found')
     helper = '''async function downloadCuriousApiProvider(job, info = {}) {
   if (job.type !== 'video') throw new Error('CuriousAPI fallback supports video jobs only.');
-
   const temporaryPath = path.join(DOWNLOAD_DIR, job.id + '.curious.tmp');
   const result = await curiousapi.downloadToFile(job.url, temporaryPath, {
     maxBytes: Number(process.env.MAX_DOWNLOAD_SIZE_MB || 1024) * 1024 * 1024,
     isSafeDownloadUrl: isSafeUrl,
   });
-
   const rawExt = path.extname(result.filename || '').toLowerCase();
   const ext = ['.mp4', '.webm', '.mkv', '.mov', '.m4v', '.avi'].includes(rawExt)
     ? rawExt
@@ -41,7 +37,6 @@ if "async function downloadCuriousApiProvider" not in s:
     try { fs.unlinkSync(temporaryPath); } catch {}
     throw error;
   }
-
   const metadata = result.metadata || {};
   return {
     filePath: path.basename(finalPath),
@@ -87,32 +82,6 @@ async function downloadVidKrakenProvider(job, info = {}) {
 '''
     s = s.replace(helper_needle, helper + helper_needle, 1)
 
-old_external = '''  const useExternal = String(process.env.VIDKRAKEN_ENABLED || '').toLowerCase() === 'true' && Boolean(process.env.VIDKRAKEN_API_KEY) && job.type === 'video';
-  if (useExternal) {
-    try {
-      const external = await downloadExternalProvider(job);
-      const updated = getJob(id);
-      const metadata = external.metadata || {};
-      updated.status = 'done';
-      updated.provider = 'external';
-      updated.title = metadata.title || 'Downloaded video';
-      updated.thumbnail = metadata.thumbnail || null;
-      updated.duration = metadata.duration || null;
-      updated.uploader = metadata.uploader || null;
-      updated.sourcePlatform = metadata.extractor || null;
-      updated.filePath = external.filePath;
-      updated.fileSize = external.fileSize;
-      await upsertJob(updated);
-      return;
-    } catch (error) {
-      console.warn(`[external-provider] ${truncate(error.message)}`);
-    }
-  }
-'''
-if old_external not in s:
-    raise SystemExit('old external-first block not found')
-s = s.replace(old_external, '', 1)
-
 old_download = "  await runYtDlp(args);\n  const files = fs.readdirSync(DOWNLOAD_DIR).filter(file => file.startsWith(id));"
 new_download = '''  try {
     await runYtDlp(args);
@@ -139,7 +108,6 @@ new_download = '''  try {
 
     const useExternal = String(process.env.VIDKRAKEN_ENABLED || '').toLowerCase() === 'true' &&
       Boolean(process.env.VIDKRAKEN_API_KEY) && job.type === 'video';
-
     if (useExternal) {
       try {
         const external = await downloadVidKrakenProvider(job, info);
