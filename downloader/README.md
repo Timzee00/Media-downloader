@@ -41,6 +41,33 @@ This is still a single shared-password tool, not a multi-user system — fine
 for you linking it from SwissKit for personal use, not intended for public
 sign-up traffic.
 
+## About page
+
+The website includes a public **About** page at \`/about\`. It explains the
+downloader, formats, supported sources, usage rights, history retention,
+common questions and temporary storage limitations. Its basic status display
+checks \`/health\` without exposing authentication or downloader history.
+
+## Availability pings
+
+A GitHub Actions workflow at \`.github/workflows/media-downloader-uptime.yml\`
+is scheduled to GET
+\`https://media-downloader-docker.onrender.com/health\` every 10 minutes,
+and also supports manual workflow dispatch. It checks that the server returns
+HTTP 200 and \`{"ok":true}\`.
+
+**Important:** GitHub schedules run only from the repository's default branch
+and are best-effort. GitHub can delay, disable or fail to start Actions jobs.
+Confirm successful job runs in the **Actions** tab; if jobs cannot start,
+this workflow is not an operational keep-alive. A separate external HTTP
+monitor is preferable when reliability matters.
+
+Render's Free services spin down after roughly 15 minutes without inbound
+requests, can restart unexpectedly, and have an ephemeral filesystem.
+Periodic pings might reduce idle sleeps but cannot ensure 24/7 uptime,
+preserve uploaded files or overcome free instance hour limits.
+The \`/health\` endpoint verifies the web process, not every video provider.
+
 ## Deploying to Render
 
 1. Push this folder to a new GitHub repo.
