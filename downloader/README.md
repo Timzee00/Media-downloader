@@ -27,14 +27,15 @@ This runs as a public URL, so it ships with baseline protections:
 - **SSRF protection** — rejects links that resolve to private/internal IP
   ranges (so the service can't be pointed at its own internal network).
 - **Auto-cleanup** — finished downloads older than `MAX_AGE_HOURS` (default
-  24) are deleted automatically, hourly, so disk usage doesn't grow forever.
+  720 hours / 30 days) are removed automatically, hourly, while their history metadata stays available for up to 90 days. Missing files can be downloaded again from the original URL if the source is still available.
 
 Set these in Render under your service's **Environment** tab:
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
 | `ACCESS_PASSWORD` | Recommended | (none — open access) | Password to unlock the app |
-| `MAX_AGE_HOURS` | Optional | `24` | How long finished downloads stick around before auto-delete |
+| `MAX_AGE_HOURS` | Optional | `720` | File retention (30 days); set an explicit 720 in Render if you previously configured 24. Applies only while files remain on persistent storage. |
+| `HISTORY_MAX_AGE_DAYS` | Optional | `90` | How long the server keeps completed-job metadata (minimum 31 days). |
 
 This is still a single shared-password tool, not a multi-user system — fine
 for you linking it from SwissKit for personal use, not intended for public
@@ -74,12 +75,28 @@ Or embed it in an iframe on a SwissKit page if you want it to feel native:
 (iframe embedding works out of the box here since the app doesn't set any
 frame-blocking headers — no changes needed on either side.)
 
-## Storage cleanup
+## Download history and recovery
 
-Nothing auto-deletes old files yet. For a public-facing tool, add a scheduled
-job (Render Cron Job, or a simple `setInterval` in `server.js`) that deletes
-files older than N days and prunes their history entries — otherwise your disk
-fills up over time. Ask me to add this whenever you're ready.
+- Download history caches up to 1,000 items in this browser, including the original
+  source URL and quality. When you press **Save**, the downloader first tries the
+  stored file. If that file has disappeared, it starts a new server-side download
+  from the original link, then offers the newly generated file.
+- New server records keep the source metadata for 90 days by default even when
+  the actual file has expired after 30 days. Old browser history items created
+  before this patch might lack a source URL; those cannot be recovered unless
+  you still have the original link. Links to private, deleted, or unavailable
+  media cannot be recovered either.
+- **Important on Render Free:** Render deletes local container files (including
+  `/data/jobs.json` and media files) when the service sleeps, restarts, or
+  redeploys. Changing retention settings cannot prevent that. Browser history
+  on the same device can preserve source URLs for re-downloads, but true
+  30-day guaranteed storage and server-side history persistence require
+  persistent storage (a paid Render disk, external object storage and a
+  persistent database, or equivalent). A disk mounted at `/data` preserves
+  both files and the server history.
+- If an older Render environment contains `MAX_AGE_HOURS=24`, update it to
+  `720` for the intended 30-day retention. Store only media you have the
+  right to download and retain. Larger disks may be required for high volume.
 
 ## Local testing
 
