@@ -60,6 +60,8 @@ RUN python3 patch-tiktok.py \
     && python3 patch-hardening-brand.py \
     && python3 patch-production-hardening.py \
     && python3 patch-provider-router.py \
+    && python3 -c "from pathlib import Path; h=Path('public/index.html').read_text(); Path('/tmp/downloader-client.js').write_text(h.split('<script>',1)[1].split('</script>',1)[0])" \
+    && node --check /tmp/downloader-client.js \
     && node --check server.js \
     && node --check provider-router.js \
     && node --check queue-manager.js \
