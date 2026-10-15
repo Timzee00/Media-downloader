@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1220">
+  <meta name="description" content="Learn about Media Downloader by Timzee Corp: supported downloads, audio conversion, history, privacy, and service availability.">
+  <title>About Media Downloader | Timzee Corp</title>
+  <style>
+    :root { color-scheme:dark; --bg:#0b1220; --surface:#121e31; --surface-2:#18273d; --line:#29384c; --ink:#edf4fd; --muted:#9fb1c6; --accent:#22d3ee; --accent-soft:rgba(34,211,238,.11); --green:#4ade80; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Arial,sans-serif; }
+    a { color:inherit; text-decoration:none; }
+    a:focus-visible,summary:focus-visible { outline:3px solid var(--accent); outline-offset:4px; border-radius:6px; }
+    .wrap { width:min(1100px, calc(100% - 40px)); margin-inline:auto; }
+    .nav { background:rgba(11,18,32,.94); border-bottom:1px solid var(--line); }
+    .nav-inner { display:flex; align-items:center; justify-content:space-between; min-height:77px; gap:20px; }
+    .brand { display:inline-flex; align-items:center; gap:11px; font-weight:750; font-size:17px; letter-spacing:-.03em; }
+    .brand-mark { width:37px; height:37px; display:grid; place-items:center; border-radius:11px; background:linear-gradient(140deg,#22d3ee,#3678b5); color:#041b28; font-size:23px; font-weight:900; }
+    .nav-links { display:flex; align-items:center; gap:22px; font-size:13px; font-weight:600; color:var(--muted); }
+    .nav-links a[aria-current="page"],.nav-links a:hover { color:var(--accent); }
+    .nav-links a:first-child { border:1px solid var(--line); border-radius:9px; padding:8px 14px; color:var(--ink); }
+    .hero { padding:85px 0 66px; position:relative; overflow:hidden; background:radial-gradient(ellipse at 75% 25%,rgba(34,211,238,.12),transparent 49%),radial-gradient(ellipse at 10% 100%,rgba(57,105,198,.12),transparent 58%); border-bottom:1px solid var(--line); }
+    .eyebrow { display:inline-flex; align-items:center; gap:9px; padding:6px 12px; border:1px solid #265167; border-radius:99px; background:var(--accent-soft); color:#90e7f5; font-weight:750; font-size:11px; text-transform:uppercase; letter-spacing:.13em; }
+    .eyebrow:before { content:""; width:6px; height:6px; background:var(--accent); border-radius:50%; }
+    h1,h2,h3,p { margin-top:0; }
+    h1 { max-width:850px; margin:22px 0 18px; font-size:clamp(39px,6vw,69px); line-height:1.09; letter-spacing:-.058em; font-weight:800; }
+    h1 em { font-style:normal; color:var(--accent); }
+    .hero p { max-width:645px; color:var(--muted); font-size:17px; line-height:1.8; }
+    .cta { display:inline-flex; align-items:center; justify-content:center; padding:12px 19px; border:1px solid var(--accent); background:var(--accent); color:#07202b; border-radius:10px; font-weight:800; margin:14px 0 0; font-size:14px; }
+    .cta:hover { background:#8ae9f7; }
+    section { padding:70px 0 0; }
+    .section-title { font-size:clamp(27px,3.6vw,38px); letter-spacing:-.04em; line-height:1.2; margin-bottom:12px; }
+    .lead { color:var(--muted); max-width:680px; margin-bottom:27px; }
+    .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:15px; }
+    .card { background:linear-gradient(155deg,var(--surface),#101b2c); border:1px solid var(--line); border-radius:16px; padding:26px; }
+    .icon { display:grid; place-items:center; height:42px; width:42px; border:1px solid #265165; background:var(--accent-soft); color:var(--accent); border-radius:12px; font-weight:800; font-size:18px; margin-bottom:18px; }
+    .card h3 { font-size:17px; margin:0 0 8px; letter-spacing:-.02em; }
+    .card p { color:var(--muted); margin:0; font-size:13px; }
+    .steps { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:15px; margin-top:28px; }
+    .step { border-top:2px solid #26738a; padding:22px 12px 0 0; }
+    .step span { display:block; color:var(--accent); font-size:12px; letter-spacing:.15em; font-weight:800; margin-bottom:12px; }
+    .step h3 { font-size:16px; margin-bottom:7px; }
+    .step p { color:var(--muted); font-size:13px; }
+    .note { background:linear-gradient(140deg,#123047,#112033); border:1px solid #2d6377; border-radius:17px; padding:30px; }
+    .note p { color:#c3d6e4; margin:0; }
+    .status { display:flex; gap:11px; align-items:flex-start; padding:22px 26px; background:var(--surface); border:1px solid var(--line); border-radius:14px; }
+    .status-dot { display:block; width:10px; height:10px; margin-top:9px; border-radius:50%; background:#fbbf24; flex:0 0 10px; box-shadow:0 0 0 4px rgba(251,191,36,.1); }
+    .status-dot.ok { background:var(--green); box-shadow:0 0 0 4px rgba(74,222,128,.1); }
+    .status-dot.bad { background:#fb7185; box-shadow:0 0 0 4px rgba(251,113,133,.1); }
+    .status strong { font-size:14px; display:block; }
+    .status p { color:var(--muted); margin:2px 0 0; font-size:12px; }
+    .faq { display:grid; gap:10px; }
+    details { border:1px solid var(--line); border-radius:12px; background:var(--surface); padding:0 21px; }
+    summary { list-style:none; cursor:pointer; font-weight:650; font-size:14px; padding:18px 0; display:flex; justify-content:space-between; gap:10px; align-items:center; }
+    summary::-webkit-details-marker { display:none; }
+    summary:after { content:"+"; color:var(--accent); font-size:20px; line-height:1; }
+    details[open] summary:after { content:"−"; }
+    details p { border-top:1px solid var(--line); padding:16px 0 20px; margin:0; color:var(--muted); font-size:13px; }
+    footer { margin-top:80px; border-top:1px solid var(--line); padding:25px 0 35px; }
+    .footer-inner { display:flex; gap:15px; flex-wrap:wrap; justify-content:space-between; align-items:center; font-size:12px; color:var(--muted); }
+    footer a { color:var(--accent); }
+    @media(max-width:640px){ .wrap{width:min(100% - 28px,1100px)} .nav-inner{min-height:68px} .brand{font-size:14px} .brand-mark{width:33px;height:33px} .nav-links{gap:12px} .nav-links a:first-child{padding:6px 10px} .hero{padding:62px 0 52px} .hero p{font-size:15px} section{padding-top:52px} .grid,.steps{grid-template-columns:1fr} .card,.note{padding:22px} footer{margin-top:58px} }
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+  </style>
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="/" aria-label="Media Downloader home"><span class="brand-mark" aria-hidden="true">↓</span>Media Downloader</a>
+      <nav class="nav-links" aria-label="Main navigation"><a href="/">Open downloader</a><a href="/about" aria-current="page">About</a></nav>
+    </div>
+  </header>
+  <main>
+    <div class="hero"><div class="wrap">
+      <span class="eyebrow">A Timzee Corp tool</span>
+      <h1>Your media, your format, <em>your choice.</em></h1>
+      <p>Media Downloader is a simple way to save supported videos, audio and photo posts for permitted personal or professional use. It brings multiple media formats into one focused, straightforward workspace.</p>
+      <a class="cta" href="/">Open Media Downloader &nbsp;↗</a>
+    </div></div>
+
+    <section class="wrap" aria-labelledby="built-for">
+      <h2 class="section-title" id="built-for">Made to keep things simple</h2>
+      <p class="lead">Paste a link, choose an available format and download without unnecessary steps. Support depends on the source website and whether its media can be accessed.</p>
+      <div class="grid">
+        <article class="card"><span class="icon" aria-hidden="true">01</span><h3>Multiple sources</h3><p>Works with many websites supported by our media extraction engines. Individual links and websites may change or become unavailable.</p></article>
+        <article class="card"><span class="icon" aria-hidden="true">02</span><h3>Video and audio formats</h3><p>Choose from available video qualities or request audio-only MP3 conversion when the original media supports it.</p></article>
+        <article class="card"><span class="icon" aria-hidden="true">03</span><h3>Clear download progress</h3><p>See when a job is preparing, processing and ready, or find a useful reason when it cannot complete.</p></article>
+        <article class="card"><span class="icon" aria-hidden="true">04</span><h3>Download history</h3><p>Return to previous jobs and save a stored file while it remains available. Where supported, an expired copy can be retrieved again from its original link.</p></article>
+      </div>
+    </section>
+
+    <section class="wrap" aria-labelledby="how-it-works">
+      <h2 class="section-title" id="how-it-works">How it works</h2>
+      <div class="steps">
+        <div class="step"><span>STEP 01</span><h3>Paste a media link</h3><p>Copy a publicly accessible media URL and paste it into the downloader.</p></div>
+        <div class="step"><span>STEP 02</span><h3>Choose your output</h3><p>Select video quality or audio-only mode, depending on what's available.</p></div>
+        <div class="step"><span>STEP 03</span><h3>Save your file</h3><p>Follow the progress until the file is ready, then save it to your device.</p></div>
+      </div>
+    </section>
+
+    <section class="wrap" aria-labelledby="responsible-use">
+      <div class="note">
+        <h2 class="section-title" id="responsible-use">Built for responsible downloading</h2>
+        <p>Only download material you own, are licensed to use, or have permission to save. Respect creators' rights, platform rules and applicable laws. Media Downloader does not claim to bypass paid access or digital-rights protections. Some media may not be retrievable if a source removes or restricts it.</p>
+      </div>
+    </section>
+
+    <section class="wrap" aria-labelledby="availability">
+      <h2 class="section-title" id="availability">Service availability</h2>
+      <p class="lead">A basic live check confirms whether the web server answers. It does not test every provider or guarantee uninterrupted downloads.</p>
+      <div class="status" role="status" aria-live="polite">
+        <span class="status-dot" id="statusDot" aria-hidden="true"></span>
+        <div><strong id="statusTitle">Checking service response…</strong><p id="statusDetail">Checking the website's health endpoint.</p></div>
+      </div>
+    </section>
+
+    <section class="wrap" aria-labelledby="faq">
+      <h2 class="section-title" id="faq">Frequently asked questions</h2>
+      <div class="faq">
+        <details><summary>Which sites are supported?</summary><p>Media Downloader uses media extraction tools that work with many popular social and video platforms. Actual support changes over time and can vary per video, region and platform restriction.</p></details>
+        <details><summary>How long are downloads saved?</summary><p>Downloaded files are held temporarily on the service. Retention settings depend on hosting and storage availability, and a restart or deployment on temporary hosting can remove them sooner. Save important files directly to your device.</p></details>
+        <details><summary>Why does an old History item say Save failed?</summary><p>The file may have expired or been removed from temporary server storage. If the original link is still known and the source is accessible, it may be possible to download it again. Old records without their original links cannot always be recovered.</p></details>
+        <details><summary>Can I save private or protected media?</summary><p>Private, paywalled, deleted or DRM-protected content may be unavailable. You must have appropriate rights or permission to download media.</p></details>
+        <details><summary>Is download history permanent?</summary><p>No. Some history is stored in your browser and some on the server. Clearing browser data, changing devices or losing temporary server storage can affect your history. Treat history as a convenience, not a permanent backup.</p></details>
+      </div>
+    </section>
+  </main>
+  <footer><div class="wrap footer-inner"><span>© <span id="year">2026</span> Media Downloader. Powered by <strong>Timzee Corp</strong>.</span><span><a href="/">Downloader</a> · <a href="/about" aria-current="page">About</a></span></div></footer>
+  <script>
+    document.getElementById('year').textContent = new Date().getFullYear();
+    const dot = document.getElementById('statusDot');
+    const title = document.getElementById('statusTitle');
+    const detail = document.getElementById('statusDetail');
+    fetch('/health', {cache:'no-store', signal:AbortSignal.timeout(9000)})
+      .then(async response => {
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const data = await response.json();
+        if (data.ok !== true) throw new Error('Health check did not confirm availability.');
+        dot.classList.add('ok');
+        title.textContent = 'Web server responding';
+        detail.textContent = 'The basic website health check responded successfully.';
+      })
+      .catch(() => {
+        dot.classList.add('bad');
+        title.textContent = 'Could not verify service health';
+        detail.textContent = 'The request timed out or failed. Please try the downloader again shortly.';
+      });
+  </script>
+</body>
+</html>

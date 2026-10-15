@@ -14,6 +14,8 @@ app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
+// Public informational page (does not expose private download data).
+app.get('/about', (req, res) => res.sendFile(path.join(__dirname, 'public', 'about.html')));
 
 const DATA_DIR = fs.existsSync('/data') ? '/data' : path.join(__dirname, 'data');
 const DOWNLOAD_DIR = path.join(DATA_DIR, 'downloads');

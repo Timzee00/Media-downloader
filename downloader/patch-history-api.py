@@ -16,7 +16,7 @@ if 'MEDIA_DOWNLOADER_HISTORY_V1' not in h:
     marker = marker_match.group(1)
 
     persistence = r'''const HISTORY_STORAGE_KEY = 'MEDIA_DOWNLOADER_HISTORY_V1';
-const HISTORY_MAX_ITEMS = 100;
+const HISTORY_MAX_ITEMS = 1000;
 
 function readHistoryCache(){
   try{
@@ -29,10 +29,12 @@ function normalizeHistoryItem(item){
   if(!item || !item.id) return null;
   return {
     id:String(item.id),
+    url:typeof item.url==='string'?item.url:null,
+    quality:typeof item.quality==='string'?item.quality:'best',
     title:item.title||'Untitled',
     thumbnail:item.thumbnail||null,
     sourcePlatform:item.sourcePlatform||item.extractor||'Media',
-    type:item.type==='audio'?'audio':'video',
+    type:item.type==='audio'?'audio':item.type==='photo'?'photo':'video',
     fileSize:Number(item.fileSize)||0,
     duration:item.duration||null,
     createdAt:item.createdAt||new Date().toISOString()
@@ -79,15 +81,87 @@ function renderHistoryItems(items){
 window.addEventListener('storage',event=>{
   if(event.key===HISTORY_STORAGE_KEY) renderHistoryItems(readHistoryCache());
 });
+let historySaveBusy = false;
+function showHistorySaveNotice(message){
+  let notice=document.querySelector('#historySaveNotice');
+  if(!notice){
+    notice=document.createElement('div');
+    notice.id='historySaveNotice';
+    notice.setAttribute('role','status');
+    notice.style.cssText='padding:10px 16px;font-size:12px;line-height:1.5;color:var(--text);border-bottom:1px solid var(--border);overflow-wrap:anywhere;';
+    const header=document.querySelector('.history-header');
+    if(header)header.insertAdjacentElement('afterend',notice);
+  }
+  if(notice)notice.textContent=message;
+  const status=document.querySelector('#statusBox');
+  if(status)status.textContent=message;
+}
+const historyRecoveryPause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function saveHistoryItem(id){
+  if(historySaveBusy)return;
+  historySaveBusy=true;
   const safeId=encodeURIComponent(String(id));
+  const cached=readHistoryCache().find(item=>String(item.id)===String(id));
   try{
-    const res=await fetch('/files/'+safeId,{method:'HEAD',cache:'no-store'});
-    if(!res.ok) throw new Error('This file is no longer available on the server.');
-    window.location.assign('/files/'+safeId);
+    let fileReady=false;
+    try{
+      const head=await fetch('/files/'+safeId,{method:'HEAD',cache:'no-store'});
+      if(head.status===401)throw new Error('Please sign in again to save files.');
+      fileReady=head.ok;
+    }catch(error){
+      if(error.message==='Please sign in again to save files.')throw error;
+    }
+    if(fileReady){
+      showHistorySaveNotice('Opening your saved file...');
+      window.location.assign('/files/'+safeId);
+      return;
+    }
+    const status=await fetch('/api/status/'+safeId,{cache:'no-store'});
+    if(status.status===401)throw new Error('Please sign in again to recover this download.');
+    const savedJob=status.ok?await status.json():null;
+    const originalUrl=savedJob?.url||cached?.url;
+    if(!originalUrl){
+      throw new Error('The stored file is gone, and this old history entry has no original source link. Paste its original link to download it again.');
+    }
+    let parsedUrl;
+    try{parsedUrl=new URL(originalUrl);}catch{}
+    if(!parsedUrl||!['https:','http:'].includes(parsedUrl.protocol)){
+      throw new Error('This history entry has an invalid source link.');
+    }
+    showHistorySaveNotice('The saved copy expired. Downloading a fresh copy from the original source...');
+    const downloadRes=await fetch('/api/download',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        url:originalUrl,
+        type:(savedJob?.type||cached?.type)==='audio'?'audio':'video',
+        quality:savedJob?.quality||cached?.quality||'best'
+      })
+    });
+    const started=await downloadRes.json().catch(()=>({}));
+    if(!downloadRes.ok)throw new Error(started.error||'Could not restart this download.');
+    const retryId=encodeURIComponent(String(started.jobId||''));
+    if(!started.jobId)throw new Error('No recovery job ID was returned.');
+    for(let attempt=0;attempt<240;attempt++){
+      await historyRecoveryPause(3000);
+      const check=await fetch('/api/status/'+retryId,{cache:'no-store'});
+      if(check.status===401)throw new Error('Session expired during recovery. Please log in again.');
+      if(!check.ok)throw new Error('Could not check recovery progress ('+check.status+').');
+      const job=await check.json();
+      if(job.status==='done'){
+        mergeHistoryItems([job]);
+        renderHistoryItems(readHistoryCache());
+        showHistorySaveNotice('The file was recovered. Opening your download...');
+        window.location.assign('/files/'+retryId);
+        return;
+      }
+      if(job.status==='failed')throw new Error(job.error||'The original source could not be downloaded again.');
+    }
+    throw new Error('The source is taking longer than expected. Check your History again shortly.');
   }catch(error){
-    const status=document.querySelector('#statusBox');
-    if(status) status.textContent='Save failed: '+(error.message||'The file could not be downloaded.');
+    showHistorySaveNotice('Save failed: '+(error.message||'Please check your connection and retry.'));
+  }finally{
+    historySaveBusy=false;
   }
 }
 '''
@@ -147,6 +221,11 @@ else:
             if depth==0: de=i+1; break
     if de is None: raise SystemExit('Could not locate deleteItem end')
     h=h[:ds]+new_delete+h[de:]
+# Capture source information as soon as a download completes, even if the server later restarts.
+poll_marker = "if(job.status==='done'){clearInterval(poll);"
+if poll_marker not in h:
+    raise SystemExit('Completion poll marker not found')
+h = h.replace(poll_marker, "if(job.status==='done'){mergeHistoryItems([job]);clearInterval(poll);", 1)
 HTML.write_text(h,encoding='utf-8')
 
 # ---------------- API-key access without breaking the website ----------------

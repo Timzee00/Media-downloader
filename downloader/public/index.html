@@ -20,6 +20,9 @@
   #statusBox { margin-top:16px; font-size:13px; color:var(--muted); min-height:20px; }
   #resultBox { margin-top:12px; }
   #resultBox a { display:inline-block; padding:10px 16px; background:#14532d; color:#bbf7d0; border-radius:8px; text-decoration:none; font-size:14px; }
+  .top-links { display:flex; gap:12px; margin-right:104px; align-items:center; }
+  .top-links a { font-size:13px; font-weight:650; color:var(--accent); border:1px solid var(--border); border-radius:8px; padding:8px 12px; text-decoration:none; }
+  .top-links a:hover { background:var(--card); }
   .history-toggle { position:fixed; top:16px; right:16px; padding:8px 14px; cursor:pointer; background:var(--card); color:var(--text); border:1px solid var(--border); border-radius:8px; }
   .history-panel { position:fixed; top:0; right:-340px; width:340px; height:100vh; background:#101728; border-left:1px solid var(--border); transition:right .25s ease; overflow-y:auto; z-index:1000; }
   .history-panel.open { right:0; }
@@ -68,13 +71,15 @@
   .progress-panel.complete .progress-fill { background:var(--success); box-shadow:none; }
   .progress-panel.error .progress-fill { background:var(--danger); box-shadow:none; }
   @keyframes spin { to { transform:rotate(360deg); } }
+  .site-footer { text-align:center; color:var(--muted); padding:0 16px 26px; font-size:12px; }
+  .site-footer a { color:var(--accent); }
   @media (max-width:520px) { main { padding:20px 14px; } .card { padding:18px; } .history-panel { width:min(340px,92vw); } .stage-time { display:none; } }
 </style>
 </head>
 <body>
 <div id="loginOverlay" class="hidden"><div class="card"><h2 style="margin-top:0;font-size:16px;">Enter password</h2><input type="password" id="passwordInput" placeholder="Access password" /><button class="primary" id="loginBtn">Unlock</button><p id="loginError"></p></div></div>
 <div id="app" class="hidden">
-  <header><h1>Media Downloader</h1></header>
+  <header><h1>Media Downloader</h1><nav class="top-links" aria-label="Main navigation"><a href="/about">About</a></nav></header>
   <button class="history-toggle" id="openHistory">History</button>
   <div class="history-panel" id="historyPanel"><div class="history-header"><strong>Download History</strong><button id="closeHistory">&times;</button></div><div id="historyList"></div></div>
   <main><div class="card">
@@ -90,6 +95,7 @@
     </div>
     <div id="resultBox"></div>
   </div></main>
+  <footer class="site-footer">Powered by <strong>Timzee Corp</strong> <span aria-hidden="true">·</span> <a href="/about">About this tool</a></footer>
 </div>
 <script>
 const $ = sel => document.querySelector(sel);
