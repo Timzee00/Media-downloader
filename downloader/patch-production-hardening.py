@@ -129,7 +129,37 @@ s = rewrite_cleanup_route(s)
 
 # 11) Make age cleanup reference-count aware.
 cleanup_regex = r"async function cleanupOldFiles\(\) \{.*?\nsetInterval\(\(\) => cleanupOldFiles\(\)\.catch\(\(\) => \{\}\), 60 \* 60 \* 1000\);"
-cleanup_new = "async function cleanupOldFiles() { const cutoff = Date.now() - MAX_AGE_HOURS * 60 * 60 * 1000; await withJobs(jobs => { const keep = []; const expired = []; for (const job of jobs) { const age = new Date(job.createdAt).getTime(); const isExpired = age < cutoff && job.status === 'done'; if (isExpired) expired.push(job); else keep.push(job); } const remainingPaths = new Set(keep.map(job => job.filePath).filter(Boolean)); for (const job of expired) { if (!job.filePath || remainingPaths.has(job.filePath)) continue; const fullPath = safeDownloadPath(job.filePath); if (fullPath && fs.existsSync(fullPath)) { try { fs.unlinkSync(fullPath); } catch {} } } jobs.length = 0; jobs.push(...keep); }); }\nsetInterval(() => cleanupOldFiles().catch(() => {}), 60 * 60 * 1000);"
+cleanup_new = r"""async function cleanupOldFiles() {
+  const now = Date.now();
+  const fileCutoff = now - MAX_AGE_HOURS * 60 * 60 * 1000;
+  const historyCutoff = now - HISTORY_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+  await withJobs(jobs => {
+    const isDone = job => job.status === 'done';
+    const age = job => Date.parse(job.createdAt);
+    const isExpiredFile = job => isDone(job) && Number.isFinite(age(job)) && age(job) < fileCutoff;
+    const isExpiredHistory = job => isDone(job) && Number.isFinite(age(job)) && age(job) < historyCutoff;
+    // Only delete files no unexpired job references. Keep the historical URL, title,
+    // quality and thumbnail so expired files can be generated again.
+    const keep = jobs.filter(job => !isExpiredHistory(job));
+    const protectedPaths = new Set(keep.filter(job => !isExpiredFile(job)).map(job => job.filePath).filter(Boolean));
+    for (const job of jobs) {
+      if (!isExpiredFile(job) && !isExpiredHistory(job)) continue;
+      if (job.filePath && !protectedPaths.has(job.filePath)) {
+        const fullPath = safeDownloadPath(job.filePath);
+        if (fullPath && fs.existsSync(fullPath)) {
+          try { fs.unlinkSync(fullPath); } catch (error) { console.warn('[history-cleanup] ' + error.message); }
+        }
+      }
+      if (isExpiredFile(job)) {
+        job.filePath = null;
+        job.fileExpiredAt = new Date(now).toISOString();
+      }
+    }
+    jobs.length = 0;
+    jobs.push(...keep);
+  });
+}
+setInterval(() => cleanupOldFiles().catch(error => console.warn('[history-cleanup] ' + error.message)), 60 * 60 * 1000);"""
 s = re.sub(cleanup_regex, cleanup_new, s, count=1, flags=re.S)
 
 # 12) Diagnostics exposes only whether optional credentials are configured, never their values.
@@ -142,6 +172,34 @@ if "app.get('/ready'" not in s:
     marker = "app.get('/health', (req, res) => res.json({ ok: true }));"
     if marker in s:
         s = s.replace(marker, marker + "\napp.get('/ready', async (req, res) => { try { const bg = await fetch('http://127.0.0.1:4416/ping', { signal: AbortSignal.timeout(1500) }); if (!bg.ok) return res.status(503).json({ ok: false, bgutil: false }); return res.json({ ok: true, bgutil: true }); } catch { return res.status(503).json({ ok: false, bgutil: false }); } });", 1)
+
+# 13) Keep files for 30 days by default; preserve 90 days of source metadata
+# so media can be retrieved again when a temporary Render filesystem is recycled.
+s = s.replace(
+    "const MAX_AGE_HOURS = Number(process.env.MAX_AGE_HOURS || 24);",
+    "const MAX_AGE_HOURS = Math.max(1, Number(process.env.MAX_AGE_HOURS || 720));",
+    1
+)
+if "const HISTORY_MAX_AGE_DAYS" not in s:
+    s = s.replace(
+        "// ---------- Cleanup ----------",
+        "const HISTORY_MAX_AGE_DAYS = Math.max(31, Number(process.env.HISTORY_MAX_AGE_DAYS || 90));\n// ---------- Cleanup ----------",
+        1
+    )
+
+# Preserve job records against an interrupted / partially written JSON write.
+s = s.replace(
+    "fs.writeFileSync(DB_FILE, JSON.stringify(jobs, null, 2));",
+    "const tmp = DB_FILE + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(jobs, null, 2)); fs.renameSync(tmp, DB_FILE);",
+    1
+)
+
+# Keep anonymous per-browser history ownership for longer than the history window.
+s = s.replace(
+    "path: '/', maxAge: 30 * 24 * 60 * 60 * 1000 });\n  return id;",
+    "path: '/', maxAge: 120 * 24 * 60 * 60 * 1000 });\n  return id;",
+    1
+)
 
 SERVER.write_text(s, encoding='utf-8')
 print('Production hardening patch applied')
