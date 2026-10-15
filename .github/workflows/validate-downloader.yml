@@ -1,0 +1,56 @@
+name: Validate downloader patches
+
+on:
+  push:
+    branches: [master, "fix/**"]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: downloader
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install test dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Apply Docker patch sequence
+        run: |
+          set -e
+          python3 patch-tiktok.py
+          python3 patch-runtime.py
+          python3 patch-stage-ui.py
+          python3 patch-preview.py
+          python3 patch-photo-audio.py
+          python3 patch-tiktok-special.py
+          python3 patch-audio-preview.py
+          python3 patch-history-api.py
+          python3 patch-diagnostics.py
+          python3 patch-queue.py
+          python3 patch-hardening-brand.py
+          python3 patch-production-hardening.py
+          python3 patch-provider-router.py
+      - name: Verify generated application
+        run: |
+          set -e
+          python3 - <<'PY'
+          from pathlib import Path
+          h = Path('public/index.html').read_text()
+          Path('/tmp/downloader-client.js').write_text(h.split('<script>', 1)[1].split('</script>', 1)[0])
+          server = Path('server.js').read_text()
+          assert "HISTORY_MAX_AGE_DAYS" in server
+          assert "fileExpiredAt" in server
+          assert "fs.renameSync(tmp, DB_FILE)" in server
+          assert "const MAX_AGE_HOURS = Math.max(1, Number(process.env.MAX_AGE_HOURS || 720))" in server
+          client = Path('/tmp/downloader-client.js').read_text()
+          assert "originalUrl" in client and "mergeHistoryItems([job])" in client
+          PY
+          node --check /tmp/downloader-client.js
+          node --check server.js
+          node --check provider-router.js
+          node --check queue-manager.js
+          node --test provider-router.test.js queue-manager.test.js platform-providers.test.js download-utils.test.js providers/curiousapi.test.js
