@@ -1,0 +1,46 @@
+name: Media Downloader - Uptime Ping
+
+# GitHub Actions is a best-effort keep-alive check, not an availability SLA.
+# Scheduled runs may be delayed or paused; Render Free may restart anyway.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: media-downloader-uptime
+  cancel-in-progress: false
+
+jobs:
+  check-health:
+    name: Request downloader health endpoint
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Wake service and verify health response
+        env:
+          TARGET_URL: https://media-downloader-docker.onrender.com/health
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Checking Media Downloader health endpoint"
+          status="$(curl --silent --show-error --location \
+            --connect-timeout 20 --max-time 105 \
+            --retry 2 --retry-delay 4 --retry-all-errors \
+            --output /tmp/health.json --write-out '%{http_code}' \
+            "$TARGET_URL")"
+          if [ "$status" != "200" ]; then
+            echo "::error::Downloader returned HTTP $status"
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          with open('/tmp/health.json', encoding='utf-8') as f:
+              health = json.load(f)
+          if health.get('ok') is not True:
+              raise SystemExit('Health endpoint did not return ok:true')
+          print('Downloader health response confirmed.')
+          PY
