@@ -71,9 +71,30 @@ async function newProcessJob(id) {
   const args = job.type === 'audio'
     ? ['-x', '--audio-format', 'mp3', '--audio-quality', '0', '--no-playlist', ...reliability.progressArgs(), '-o', outputTemplate, job.url]
     : ['-f', QUALITY_FORMATS[job.quality] || QUALITY_FORMATS.best, '--merge-output-format', 'mp4', '--no-playlist', ...reliability.progressArgs(), '-o', outputTemplate, job.url];
-  const engineResult = await downloadJobQueue.add(() => runYtDlp(args, { jobId: id }), {
-    urlHost: safeHost(job.url), operation: 'download', providerPlatform: providerRouter.classifyPlatform(job.url)
-  });
+  let engineResult;
+  let alternativeProvider = null;
+  try {
+    engineResult = await downloadJobQueue.add(() => runYtDlp(args, { jobId: id }), {
+      urlHost: safeHost(job.url), operation: 'download', providerPlatform: providerRouter.classifyPlatform(job.url)
+    });
+  } catch (primaryError) {
+    // Explicit opt-in only: outside services can see submitted media links.
+    if (job.type !== 'video') throw primaryError;
+    if (process.env.CURIOUSAPI_ENABLED === 'true') {
+      try {
+        await downloadJobQueue.add(() => downloadCuriousApiProvider(job, info), { operation: 'external-fallback', providerPlatform: 'curiousapi' });
+        alternativeProvider = 'curiousapi';
+      } catch (error) { diagLog('curiousapi_failed', { jobId:id, detail:compactDetail(error.message,300) }); }
+    }
+    if (!alternativeProvider && process.env.VIDKRAKEN_ENABLED === 'true' && process.env.VIDKRAKEN_API_KEY) {
+      try {
+        await downloadJobQueue.add(() => downloadVidKrakenProvider(job, info), { operation: 'external-fallback', providerPlatform: 'vidkraken' });
+        alternativeProvider = 'vidkraken';
+      } catch (error) { diagLog('vidkraken_failed', { jobId:id, detail:compactDetail(error.message,300) }); }
+    }
+    if (!alternativeProvider) throw primaryError;
+    engineResult = { stdout:'' };
+  }
   await updateJobStage(id, 'process', 83, job.type === 'audio' ? 'Verifying and converting the audio file.' : 'Verifying the video file.');
   const outputs = String(engineResult.stdout || '').split(/[\r\n]/).map(line => line.trim()).filter(Boolean);
   const printedPath = outputs.reverse().find(line => line.startsWith(DOWNLOAD_DIR + path.sep)) || null;
@@ -91,7 +112,8 @@ async function newProcessJob(id) {
     title: info.title || 'Downloaded media', thumbnail: info.thumbnail || null,
     uploader: info.uploader || null, duration: info.duration || file.duration || null,
     sourcePlatform: info.extractor || providerRouter.classifyPlatform(job.url),
-    filePath: file.filePath, fileSize: file.fileSize
+    filePath: file.filePath, fileSize: file.fileSize,
+    provider: alternativeProvider || 'yt-dlp / you-get'
   });
   await upsertJob(updated);
 }
