@@ -27,6 +27,7 @@ test('classifies supported platforms', () => {
   assert.equal(classifyPlatform('https://www.threads.net/@user/post/1'), 'threads');
   assert.equal(classifyPlatform('https://www.reddit.com/r/test/comments/abc/'), 'reddit');
   assert.equal(classifyPlatform('https://www.snapchat.com/add/ansh_trio'), 'snapchat');
+  assert.equal(classifyPlatform('https://audiomack.com/dj-energyze/song/best-of-balloranking-and-seyi-vibez'), 'audiomack');
 });
 
 test('does not misclassify lookalike domains', () => {
