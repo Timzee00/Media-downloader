@@ -125,6 +125,67 @@ frame-blocking headers — no changes needed on either side.)
   `720` for the intended 30-day retention. Store only media you have the
   right to download and retain. Larger disks may be required for high volume.
 
+
+## Reliability upgrade (October 2026)
+
+The Docker build now applies `patch-reliability.js` as the **last** compatibility patch,
+before syntax checks and tests. Download behavior no longer relies on a guessed file
+extension or a successful process exit alone.
+
+- yt-dlp reports its final output path using `after_move:filepath`. The server
+  cross-checks that path against files belonging to the same job.
+- The You-Get fallback receives a **literal** sanitized filename prefix, never
+  a yt-dlp `%(ext)s` template.
+- FFprobe confirms that completed media contains an actual audio or video
+  stream. Audio that is not MP3 is transcoded by FFmpeg, verified and saved as
+  MP3. Failed/missing/corrupted output does not reach 100% completion.
+- The page displays transferred bytes, download speed and ETA when yt-dlp
+  exposes those values. If the source does not report them, the UI says
+  *unknown* instead of inventing metrics.
+- Non-TikTok links bypass the TikTok photo-page detector entirely.
+- The default engine timeout is 15 minutes (customizable with
+  `DOWNLOADER_ENGINE_TIMEOUT_MS`), although free hosting may terminate long
+  jobs independently.
+- Completed output is limited by `MAX_DOWNLOAD_SIZE_MB` (default 1024).
+  Job errors are logged with their job ID and safe artifact filenames.
+- A build-time test suite checks output selection, missing/corrupt files,
+  FFmpeg MP3 conversion, extensionless fallback inputs and video validation.
+
+### Validate without GitHub Actions or billing
+
+```sh
+# From the repository root; Docker and internet access are required:
+docker build -t timzee-media-downloader -f Dockerfile .
+docker run --rm -p 3000:3000 timzee-media-downloader
+
+# Or run the isolated reliability tests with Node 22+ and local FFmpeg/FFprobe:
+cd downloader
+node --test reliability-core.test.js
+```
+
+By default, browser cross-origin API calls do not receive CORS permission. Set `CORS_ALLOWED_ORIGINS` to a comma-separated list of trusted exact origins (for example, `https://your-site.example`) only if an external browser frontend needs to call the downloader's API. Same-origin requests and ordinary media downloads work without this setting.
+
+For optional fallback video providers, set `CURIOUSAPI_ENABLED=true` to
+opt in to the existing CuriousAPI service; keep it unset/false for privacy.
+Set `VIDKRAKEN_ENABLED=true` with your own `VIDKRAKEN_API_KEY` only if you
+have reviewed that provider's terms and pricing. These options apply only to
+video jobs after the local engines fail. The external result is still
+validated before it can be marked complete.
+
+**About free provider APIs:** No third-party API key is required for yt-dlp,
+FFmpeg or You-Get. Optional external services can fail, impose limits, collect
+links or charge later. Treat them as opt-in supplements, not guaranteed
+replacements for locally maintained extractors. Download only media you own,
+are authorized to save or that the source allows.
+
+**Limitations:** These tests use generated media and fake/edge-case files.
+They do **not** verify live access to every site or guarantee that a
+particular Audiomack URL works. Run a live test against media you are
+authorized to download on the actual Render deployment before merging.
+Render Free has cold starts and an ephemeral disk; completed files and server
+history can be lost on restart. Do not advertise permanent storage or
+always-on reliability on that plan.
+
 ## Local testing
 
 ```bash
