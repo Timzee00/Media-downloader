@@ -163,6 +163,8 @@ cd downloader
 node --test reliability-core.test.js
 ```
 
+By default, browser cross-origin API calls do not receive CORS permission. Set `CORS_ALLOWED_ORIGINS` to a comma-separated list of trusted exact origins (for example, `https://your-site.example`) only if an external browser frontend needs to call the downloader's API. Same-origin requests and ordinary media downloads work without this setting.
+
 For optional fallback video providers, set `CURIOUSAPI_ENABLED=true` to
 opt in to the existing CuriousAPI service; keep it unset/false for privacy.
 Set `VIDKRAKEN_ENABLED=true` with your own `VIDKRAKEN_API_KEY` only if you
