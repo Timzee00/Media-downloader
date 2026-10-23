@@ -58,7 +58,7 @@ test('simulated video output is probed and validated',async()=>tempJob(async dir
 test('video cannot be mislabeled as audio-only',async()=>tempJob(async dir=>{
  const id='abc12345';
  await runMediaTool('ffmpeg',['-f','lavfi','-i','color=size=120x80:rate=10:duration=1','-c:v','mpeg4','-y',path.join(dir,id+'.mp4')]);
- await assert.rejects(finalizeMedia({dir,id,type:'audio'}),/valid audio stream/);
+ await assert.rejects(finalizeMedia({dir,id,type:'audio'}),/no playable audio file/);
 }));
 test('output cap is enforced',async()=>tempJob(async dir=>{
  const id='abc12345';fs.writeFileSync(path.join(dir,id+'.mp3'),Buffer.alloc(1024));
@@ -74,4 +74,10 @@ test('a file mislabeled MP3 with another audio codec is converted into actual MP
  const result=await finalizeMedia({dir,id,type:'audio'});
  assert.equal(result.filePath,id+'.mp3');
  assert.equal((await probeMedia(path.join(dir,result.filePath))).audioCodec,'mp3');
+}));
+
+test('provider audio validation distinguishes a silent video from actual audio', async()=>tempJob(async dir=>{
+ const id='abc12345';
+ await runMediaTool('ffmpeg',['-f','lavfi','-i','color=size=120x80:rate=10:duration=1','-c:v','mpeg4','-y',path.join(dir,id+'-fallback.mp4')]);
+ await assert.rejects(finalizeMedia({dir,id,type:'audio'}), err => err.code === 'INVALID_PROVIDER_MEDIA' && /provider returned no playable audio/i.test(err.message));
 }));
