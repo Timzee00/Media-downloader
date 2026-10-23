@@ -153,6 +153,62 @@ function updateTransferStats(job){
 }
 `;
   htmlPatch('function syncProgress(job,isPhoto){', metricUI + 'function syncProgress(job,isPhoto){\n  updateTransferStats(job);', 'progress page');
+
+  // Progressive enhancement: no third-party CSS or JavaScript dependencies.
+  const polish = `
+  :root { --bg:#060a18; --card:#101a2e; --accent:#22d3ee; --text:#f1f5f9; --muted:#a2afc3; --border:#31405a; }
+  body { min-height:100vh; background:radial-gradient(ellipse 75% 35% at 50% 0%,rgba(6,182,212,.17),transparent),radial-gradient(ellipse 55% 35% at 110% 55%,rgba(99,102,241,.11),transparent),var(--bg); }
+  header { background:rgba(6,10,24,.86); backdrop-filter:blur(15px); -webkit-backdrop-filter:blur(15px); position:relative; z-index:4; min-height:70px; }
+  header h1 { font-size:clamp(16px,3.7vw,20px); letter-spacing:-.03em; }
+  main { max-width:760px; padding:34px 18px 55px; }
+  .hero-intro { text-align:center; margin-bottom:28px; }
+  .hero-intro h2 { font-size:clamp(28px,6vw,43px); letter-spacing:-.045em; line-height:1.12; margin:12px 0; }
+  .hero-intro p { color:var(--muted); line-height:1.6; max-width:450px; margin:0 auto; font-size:14px; }
+  .eyebrow { display:inline-block; border:1px solid #2e435d; border-radius:99px; color:var(--accent); background:rgba(34,211,238,.06); font-size:11px; letter-spacing:.15em; padding:8px 13px; font-weight:800; }
+  .card { background:linear-gradient(145deg,rgba(21,36,60,.96),rgba(11,20,39,.97)); border-radius:22px; padding:clamp(18px,4vw,34px); box-shadow:0 20px 55px rgba(0,0,0,.24); }
+  .link-label { display:block; font-weight:700; font-size:13px; margin-bottom:10px; }
+  .link-entry { display:flex; gap:8px; min-width:0; }
+  .link-entry input { flex:1; min-width:0; }
+  .paste-link { padding:0 15px; border:1px solid #33506a; border-radius:9px; color:var(--accent); background:#10263a; cursor:pointer; font-weight:700; }
+  input[type=text],input[type=password],select { background:#090f23; border-color:#35435e; min-height:52px; font-size:14px; }
+  button.primary { min-height:54px; border-radius:12px; background:linear-gradient(95deg,#06b6d4,#22d3ee); font-size:16px; box-shadow:0 12px 26px rgba(8,145,178,.20); }
+  #resultBox a { min-height:48px; padding:13px 18px; border:1px solid #2b8a4d; border-radius:11px; font-weight:800; }
+  .progress-panel { border-radius:17px; background:#0a1429; }
+  .progress-head { padding:19px; } .progress-title { font-size:16px; } .progress-detail { font-size:12px; line-height:1.4; }
+  .stage-name { font-size:13px; } .stage-detail { font-size:11px; line-height:1.4; }
+  .stage { min-height:59px; }
+  .history-panel { width:min(390px,94vw); right:min(-390px,-94vw); background:#0b162a; box-shadow:-12px 0 40px rgba(0,0,0,.3); }
+  .history-backdrop { position:fixed; inset:0; border:0; background:rgba(0,0,0,.58); z-index:999; cursor:pointer; }
+  .history-panel.open { right:0; }
+  .site-footer { line-height:1.7; padding-bottom:42px; }
+  @media(max-width:520px) { header{padding:16px 14px;} header h1{max-width:48vw;} .top-links{margin-right:92px;} main{padding:28px 14px 46px;} .card{padding:19px;} .hero-intro{margin-bottom:24px;} .link-entry{gap:6px;} .paste-link{padding:0 11px;} }
+  `;
+  html = html.replace('</style>', polish + '</style>');
+  html = html.replace('<main><div class="card">', '<main><section class="hero-intro"><div class="eyebrow">MEDIA STUDIO · TIMZEE CORP</div><h2>Save your media, simply.</h2><p>Paste a public media link, select your format, and save verified results directly to your device.</p></section><div class="card">');
+  html = html.replace(/(<input type="text" id="urlInput"[^>]*\/?>)/, '<label class="link-label" for="urlInput">Media link</label><div class="link-entry">$1<button type="button" class="paste-link" id="pasteLink">Paste</button></div>');
+  html = html.replace('<div class="history-panel"', '<button type="button" id="historyBackdrop" class="history-backdrop hidden" aria-label="Close download history"></button><div class="history-panel"');
+  const extraJS = `
+const pasteLinkButton=document.getElementById('pasteLink');
+if(pasteLinkButton)pasteLinkButton.addEventListener('click',async()=>{
+ try {
+  if(!navigator.clipboard?.readText)throw new Error('Clipboard permission not available');
+  const value=(await navigator.clipboard.readText()).trim();
+  if(!value)throw new Error('Clipboard is empty');
+  document.getElementById('urlInput').value=value;
+  document.getElementById('urlInput').dispatchEvent(new Event('input',{bubbles:true}));
+ } catch(error) { document.getElementById('statusBox').textContent='Could not paste automatically. Touch and hold the link field to paste manually.'; }
+});
+const historyBackdrop=document.getElementById('historyBackdrop');
+if(historyBackdrop){
+ const showHistoryBackdrop=()=>historyBackdrop.classList.remove('hidden');
+ const hideHistoryBackdrop=()=>historyBackdrop.classList.add('hidden');
+ document.getElementById('openHistory').addEventListener('click',showHistoryBackdrop);
+ document.getElementById('closeHistory').addEventListener('click',hideHistoryBackdrop);
+ historyBackdrop.addEventListener('click',()=>{document.getElementById('historyPanel').classList.remove('open');hideHistoryBackdrop();});
+ document.addEventListener('keydown',event=>{if(event.key==='Escape'){document.getElementById('historyPanel').classList.remove('open');hideHistoryBackdrop();}});
+}
+`;
+  if(!html.includes('const pasteLinkButton=')) html=html.replace('\ncheckAuth();\n','\ncheckAuth();\n'+extraJS);
   fs.writeFileSync(h, html, 'utf8');
 }
 console.log('Reliability core integrated; generated server and UI patched.');
