@@ -60,14 +60,16 @@ RUN python3 patch-tiktok.py \
     && python3 patch-hardening-brand.py \
     && python3 patch-production-hardening.py \
     && python3 patch-provider-router.py \
+    && node patch-reliability.js \
     && python3 -c "from pathlib import Path; h=Path('public/index.html').read_text(); Path('/tmp/downloader-client.js').write_text(h.split('<script>',1)[1].split('</script>',1)[0])" \
     && node --check /tmp/downloader-client.js \
     && node --check server.js \
     && node --check provider-router.js \
     && node --check queue-manager.js \
     && node --check download-utils.js \
-    && node --test provider-router.test.js queue-manager.test.js platform-providers.test.js download-utils.test.js providers/curiousapi.test.js \
-    && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py patch-preview.py patch-photo-audio.py patch-tiktok-special.py patch-audio-preview.py patch-history-api.py patch-diagnostics.py patch-queue.py patch-hardening-brand.py patch-production-hardening.py patch-provider-router.py
+    && node --check reliability-core.js \
+    && node --test provider-router.test.js queue-manager.test.js platform-providers.test.js download-utils.test.js reliability-core.test.js providers/curiousapi.test.js \
+    && rm -f patch-tiktok.py patch-runtime.py patch-stage-ui.py patch-preview.py patch-photo-audio.py patch-tiktok-special.py patch-audio-preview.py patch-history-api.py patch-diagnostics.py patch-queue.py patch-hardening-brand.py patch-production-hardening.py patch-provider-router.py patch-reliability.js
 
 RUN mkdir -p /data/downloads
 COPY downloader/start.sh /app/start.sh
