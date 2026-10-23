@@ -22,6 +22,7 @@ async function exercise({type='audio',output='valid',mediaHost='audiomack.com'}=
   let resolverInvocations=0;
   const context = {
     URL,path, DOWNLOAD_DIR:dir, MAX_DOWNLOAD_BYTES:5000000, reliability,
+    process:{env:{CURIOUSAPI_ENABLED:'true'}},
     QUALITY_FORMATS:{best:'bestvideo+bestaudio/best'},
     getJob:()=>job,
     upsertJob:async j=>{Object.assign(job,j);},
@@ -33,8 +34,14 @@ async function exercise({type='audio',output='valid',mediaHost='audiomack.com'}=
     providerRouter:{classifyPlatform:()=>mediaHost==='audiomack.com'?'generic':'mock'},
     diagLog:()=>{},
     compactDetail:text=>String(text).slice(0,300),
+    downloadCuriousApiProvider:async()=>{
+      const file=path.join(dir,id+'.mp4');
+      await reliability.runMediaTool('ffmpeg',['-f','lavfi','-i','color=size=120x80:rate=10:duration=1','-c:v','mpeg4','-y',file]);
+      return {filePath:path.basename(file)};
+    },
     runYtDlp:async args=>{
       if(args.includes('-j'))return {stdout:JSON.stringify({title:'Demo downloadable media',extractor:'audiomack',uploader:'Demo'})};
+      if(output==='primary-error')throw new Error('primary and You-Get failed');
       const template=args[args.indexOf('-o')+1];
       assert.ok(template.includes('%(ext)s'));
       if(output==='missing')return {stdout:''};
@@ -69,4 +76,10 @@ test('completed subprocess without a file never marks the job as done',async()=>
 });
 test('corrupted output cannot reach 100%',async()=>{
  const r=await exercise({output:'corrupt'});assert.ok(r.error);assert.notEqual(r.progress,100);assert.notEqual(r.status,'done');
+});
+
+test('opt-in provider fallback can recover a failed video engine and is still verified',async()=>{
+ const r=await exercise({type:'video',output:'primary-error'});
+ assert.equal(r.error,null);assert.equal(r.status,'done');
+ assert.equal(r.verified.video,true);assert.equal(r.filename,'e2e-simulated-job.mp4');
 });
