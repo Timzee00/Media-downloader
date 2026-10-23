@@ -163,6 +163,13 @@ cd downloader
 node --test reliability-core.test.js
 ```
 
+For optional fallback video providers, set `CURIOUSAPI_ENABLED=true` to
+opt in to the existing CuriousAPI service; keep it unset/false for privacy.
+Set `VIDKRAKEN_ENABLED=true` with your own `VIDKRAKEN_API_KEY` only if you
+have reviewed that provider's terms and pricing. These options apply only to
+video jobs after the local engines fail. The external result is still
+validated before it can be marked complete.
+
 **About free provider APIs:** No third-party API key is required for yt-dlp,
 FFmpeg or You-Get. Optional external services can fail, impose limits, collect
 links or charge later. Treat them as opt-in supplements, not guaranteed
