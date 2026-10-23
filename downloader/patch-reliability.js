@@ -117,6 +117,12 @@ async function newProcessJob(id) {
     file = await reliability.finalizeMedia({ dir: DOWNLOAD_DIR, id, type: job.type, printedPath, maxBytes: MAX_DOWNLOAD_BYTES });
   } catch (error) {
     diagLog('invalid_output', { jobId: id, code: error.code || 'MEDIA_INVALID', artifacts: error.artifacts || [], detail: compactDetail(error.message, 300) });
+    if (providerRouter.classifyPlatform(job.url) === 'audiomack' &&
+        ['INVALID_PROVIDER_MEDIA', 'NO_MEDIA_OUTPUT'].includes(error.code)) {
+      const unavailable = new Error('Audiomack did not return a playable downloadable file through the available providers. Use the official Audiomack app for supported offline listening, or try media you have permission to save from another supported source.');
+      unavailable.code = 'AUDIOMACK_PROVIDER_UNAVAILABLE';
+      throw unavailable;
+    }
     throw error;
   }
   await updateJobStage(id, 'finalize', 96, 'Checking the completed file and preparing your download.');
@@ -223,6 +229,31 @@ if(historyBackdrop){
 }
 `;
   if(!html.includes('const pasteLinkButton=')) html=html.replace('\ncheckAuth();\n','\ncheckAuth();\n'+extraJS);
+
+  // Keep History inside the visible header; previous fixed top:16px was above
+  // the Android browser viewport. The old brand patch also inserted a duplicate footer.
+  const headerOld = '<header><h1>Media Downloader</h1><nav class="top-links" aria-label="Main navigation"><a href="/about">About</a></nav></header>';
+  const headerNew = '<header><h1>Media Downloader</h1><nav class="top-links" aria-label="Main navigation"><a href="/about">About</a><button class="history-toggle" id="openHistory" type="button" aria-controls="historyPanel">History</button></nav></header>';
+  if (!html.includes(headerOld) || !html.includes('<button class="history-toggle" id="openHistory">History</button>')) {
+    throw new Error('Browser header changed: cannot safely move the history control');
+  }
+  html = html.replace(headerOld, headerNew);
+  html = html.replace('<button class="history-toggle" id="openHistory">History</button>', '');
+  // Remove only the redundant injected footer; preserve the primary site footer.
+  html = html.replace(/<footer class="brand-footer"[^>]*>[\s\S]*?<\/footer>/g, '');
+  html = html.replace('</style>', '.top-links{margin-right:0;gap:8px}.history-toggle{position:static;top:auto;right:auto;padding:8px 12px;flex-shrink:0}.top-links a{flex-shrink:0}@media(max-width:520px){.top-links{margin-right:0}header h1{max-width:none}} </style>');
+  // The existing stage sync marks the true failure stage. finishProgress must
+  // not also mark stage one as failed when no step is active.
+  const finishOld = "else {const active=stages.find(s=>s.classList.contains('active'))||stages[0];stages.forEach(s=>s.classList.remove('active'));if(active)active.classList.add('failed');";
+  const finishNew = "else {const active=stages.find(s=>s.classList.contains('failed'))||stages.find(s=>s.classList.contains('active'))||stages[0];stages.forEach(s=>s.classList.remove('active','failed'));if(active)active.classList.add('failed');";
+  if (!html.includes(finishOld)) throw new Error('Browser failure-stage handling changed');
+  html = html.replace(finishOld, finishNew);
+  const failedOld = "statusBox.textContent=\`Failed: \${job.error||'Unknown error'}\`;btn.disabled=false;";
+  const failedNew = "statusBox.textContent=\`Failed: \${job.error||'Unknown error'}\`;if((job.error||'').includes('Audiomack did not return')){resultBox.innerHTML='<p class=\"source-help\">Audiomack offline listening is available through its official app. <a target=\"_blank\" rel=\"noopener noreferrer\" href=\"https://audiomack.zendesk.com/hc/en-us/articles/360013834432-How-do-you-download-music-on-Audiomack\">See Audiomack download options</a></p>';}btn.disabled=false;";
+  if (!html.includes(failedOld)) throw new Error('Browser failure message handler changed');
+  html = html.replace(failedOld, failedNew);
+  html = html.replace('</style>', '.source-help{margin:12px 0;font-size:13px;color:var(--muted);line-height:1.55}.source-help a{display:inline;color:var(--accent);padding:0;background:transparent;min-height:auto;text-decoration:underline} </style>');
+
   fs.writeFileSync(h, html, 'utf8');
 }
 console.log('Reliability core integrated; generated server and UI patched.');
