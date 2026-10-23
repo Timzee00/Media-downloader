@@ -64,3 +64,14 @@ test('output cap is enforced',async()=>tempJob(async dir=>{
  const id='abc12345';fs.writeFileSync(path.join(dir,id+'.mp3'),Buffer.alloc(1024));
  await assert.rejects(finalizeMedia({dir,id,type:'audio',maxBytes:1}),/size limit/);
 }));
+
+test('a file mislabeled MP3 with another audio codec is converted into actual MP3',async()=>tempJob(async dir=>{
+ const id='abc12345';const src=path.join(dir,id+'.flac');
+ await runMediaTool('ffmpeg',['-f','lavfi','-i','sine=frequency=300:duration=1','-c:a','flac','-y',src]);
+ fs.renameSync(src,path.join(dir,id+'.mp3'));
+ const before=await probeMedia(path.join(dir,id+'.mp3'));
+ assert.equal(before.audioCodec,'flac');
+ const result=await finalizeMedia({dir,id,type:'audio'});
+ assert.equal(result.filePath,id+'.mp3');
+ assert.equal((await probeMedia(path.join(dir,result.filePath))).audioCodec,'mp3');
+}));
