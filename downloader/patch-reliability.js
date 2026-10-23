@@ -7,6 +7,20 @@ function patch(oldText, newText, label) {
   s = s.replace(oldText, newText);
 }
 patch("const { v4: uuidv4 } = require('uuid');", "const { v4: uuidv4 } = require('uuid');\nconst reliability = require('./reliability-core');", 'imports');
+
+const safeCors = `
+const downloaderOrigins = new Set(String(process.env.CORS_ALLOWED_ORIGINS || '').split(',').map(v => v.trim()).filter(Boolean));
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (req.path.startsWith('/api/') || req.path.startsWith('/files/')) res.setHeader('Cache-Control', 'private, no-store');
+  next();
+});
+app.use(cors({ origin(origin, cb) { cb(null, !origin || downloaderOrigins.has(origin)); }, credentials: true }));
+`;
+if (s.includes('app.use(cors());')) s = s.replace('app.use(cors());', safeCors);
+
 patch('function runYtDlp(args) {', 'function runYtDlp(args, extra = {}) {', 'downloader entrypoint');
 patch('meta: { urlHost: safeHost(url), operation },', 'meta: { urlHost: safeHost(url), operation, ...extra },', 'engine metadata');
 patch("  return runExternalEngine('you-get', ['-o', DOWNLOAD_DIR, '-O', destinationPrefix, url], {",
