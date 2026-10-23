@@ -78,8 +78,16 @@ async function finalizeMedia({ dir, id, type, printedPath = null, maxBytes = 102
   }
   if (selected.size > maxBytes) throw new Error('Source media exceeds the configured file size limit.');
   const probe = await probeMedia(selected.fullPath);
-  if (type === 'audio' && !probe.audio) throw new Error('The source did not contain a valid audio stream.');
-  if (type === 'video' && !probe.video) throw new Error('The source did not contain a valid video stream.');
+  // An extractor's exit status does not prove it downloaded media. In particular,
+  // unsupported providers may save an HTML page or a silent video as "output".
+  if ((type === 'audio' && !probe.audio) || (type === 'video' && !probe.video)) {
+    const error = new Error(type === 'audio'
+      ? 'The download provider returned no playable audio file.'
+      : 'The download provider returned no playable video file.');
+    error.code = 'INVALID_PROVIDER_MEDIA';
+    error.providerFile = selected.name;
+    throw error;
+  }
   let finalPath = selected.fullPath;
   if (type === 'audio' && (path.extname(selected.name).toLowerCase() !== '.mp3' || probe.audioCodec !== 'mp3')) {
     const mp3 = path.join(dir, `${id}.mp3`);

@@ -6,7 +6,7 @@ service on Render — separate from SwissKit, which stays on InfinityFree.
 ## What it does
 
 - Paste a link (YouTube, TikTok, Instagram, Twitter/X, Facebook, SoundCloud,
-  YouTube Music, Audiomack, and anything else yt-dlp supports)
+  YouTube Music, and other sources supported by the installed extractors)
 - Choose **Video (with sound)** or **Sound only (MP3)**
 - Pick a quality (up to 4K where the source supports it)
 - Download history side panel — thumbnail, title, platform, file size, re-download or delete
@@ -125,6 +125,25 @@ frame-blocking headers — no changes needed on either side.)
   `720` for the intended 30-day retention. Store only media you have the
   right to download and retain. Larger disks may be required for high volume.
 
+
+## Known Audiomack extraction limitation (October 2026)
+
+Audiomack is currently **not a verified working MP3 source** in our production
+deployment. Runtime logs show yt-dlp failing to parse JSON from its obsolete
+extractor endpoint; You-Get may return exit status 0 without generating actual
+playable audio. FFprobe correctly rejects this result. The user interface now
+reports the **provider limitation** rather than claiming that a playable song
+has no audio. Where available, Audiomack supports offline listening through
+its own app; those offline files are not general-purpose MP3 exports.
+
+Do not advertise Audiomack support until an authorized provider has passed a
+real end-to-end test with the target file. Do not try to make a copyrighted
+stream exportable by bypassing DRM or access restrictions. This problem is
+distinct from the MP3 conversion and filename fixes.
+
+The mobile header History button is now visible inside the viewport, the
+redundant branding footer is removed, and only the actual failed progress
+stage should be marked red.
 
 ## Reliability upgrade (October 2026)
 
