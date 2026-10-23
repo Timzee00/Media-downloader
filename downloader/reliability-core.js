@@ -66,7 +66,7 @@ async function probeMedia(file) {
   const output = await runMediaTool('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type,codec_name:format=format_name,duration', '-of', 'json', file], 30000);
   let info;
   try { info = JSON.parse(output); } catch { throw new Error('The downloaded file could not be inspected.'); }
-  return { audio: Boolean(info.streams?.some(s => s.codec_type === 'audio')), video: Boolean(info.streams?.some(s => s.codec_type === 'video')), format: String(info.format?.format_name || ''), duration: Number(info.format?.duration) || null };
+  return { audio: Boolean(info.streams?.some(s => s.codec_type === 'audio')), audioCodec: info.streams?.find(s => s.codec_type === 'audio')?.codec_name || null, video: Boolean(info.streams?.some(s => s.codec_type === 'video')), format: String(info.format?.format_name || ''), duration: Number(info.format?.duration) || null };
 }
 async function finalizeMedia({ dir, id, type, printedPath = null, maxBytes = 1024 * 1024 * 1024 }) {
   const { selected, artifacts } = selectCandidate(dir, id, type, printedPath);
@@ -81,16 +81,16 @@ async function finalizeMedia({ dir, id, type, printedPath = null, maxBytes = 102
   if (type === 'audio' && !probe.audio) throw new Error('The source did not contain a valid audio stream.');
   if (type === 'video' && !probe.video) throw new Error('The source did not contain a valid video stream.');
   let finalPath = selected.fullPath;
-  if (type === 'audio' && path.extname(selected.name).toLowerCase() !== '.mp3') {
+  if (type === 'audio' && (path.extname(selected.name).toLowerCase() !== '.mp3' || probe.audioCodec !== 'mp3')) {
     const mp3 = path.join(dir, `${id}.mp3`);
-    if (finalPath !== mp3) {
-      await runMediaTool('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-i', finalPath,
-        '-vn', '-map', '0:a:0', '-map_metadata', '0', '-c:a', 'libmp3lame', '-q:a', '2', '-id3v2_version', '3', mp3]);
-      const verified = await probeMedia(mp3);
-      if (!verified.audio) throw new Error('MP3 conversion produced no playable audio stream.');
-      fs.unlinkSync(finalPath);
-      finalPath = mp3;
-    }
+    const output = finalPath === mp3 ? path.join(dir, `${id}-converted.mp3`) : mp3;
+    await runMediaTool('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-i', finalPath,
+      '-vn', '-map', '0:a:0', '-map_metadata', '0', '-c:a', 'libmp3lame', '-q:a', '2', '-id3v2_version', '3', output]);
+    const verified = await probeMedia(output);
+    if (!verified.audio || verified.audioCodec !== 'mp3') throw new Error('MP3 conversion produced no playable MP3 stream.');
+    fs.unlinkSync(finalPath);
+    if (output !== mp3) fs.renameSync(output, mp3);
+    finalPath = mp3;
   } else if (type === 'video' && !videoExt.has(path.extname(selected.name).toLowerCase())) {
     const extension = probe.format.includes('webm') ? '.webm' : probe.format.includes('mp4') || probe.format.includes('mov') ? '.mp4' : '.mkv';
     const target = path.join(dir, `${id}${extension}`);
