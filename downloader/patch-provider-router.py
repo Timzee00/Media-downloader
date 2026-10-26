@@ -162,8 +162,12 @@ fallback_info_route = r'''app.post('/api/info', requireAuth, rateLimit, async (r
     return res.status(400).json({ error: 'A valid, public http(s) URL is required.' });
   }
 
+  if (providerRouter.classifyPlatform(url) === 'spotify') {
+    return res.status(422).json({ error: 'Spotify tracks are not directly downloadable through this service. Use Spotify playback or its official offline features.' });
+  }
+
   try {
-    const photo = await tryResolveTikTokPhoto(url);
+    const photo = isTikTokHost(new URL(url).hostname) ? await tryResolveTikTokPhoto(url) : null;
     if (photo) {
       return res.json({
         title: photo.title,
@@ -213,7 +217,8 @@ fallback_info_route = r'''app.post('/api/info', requireAuth, rateLimit, async (r
         detail: truncate(primaryError.message || String(primaryError), 900),
       });
 
-      if (String(process.env.VIDKRAKEN_ENABLED || '').toLowerCase() === 'true' &&
+      if (providerRouter.classifyPlatform(url) === 'youtube' &&
+          String(process.env.VIDKRAKEN_ENABLED || '').toLowerCase() === 'true' &&
           Boolean(process.env.VIDKRAKEN_API_KEY)) {
         try {
           const externalInfo = await vidkraken.getInfo(url);
