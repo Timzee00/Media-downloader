@@ -22,6 +22,8 @@ async function exercise({type='audio',output='valid',mediaHost='audiomack.com'}=
   let resolverInvocations=0;
   const context = {
     URL,path, DOWNLOAD_DIR:dir, MAX_DOWNLOAD_BYTES:5000000, reliability,
+    isSafeUrl:async()=>true,
+    urlRecovery:{resolveTikTokShareUrl:async url=>({url,status:'unchanged'})},
     process:{env:{CURIOUSAPI_ENABLED:'true'}},
     QUALITY_FORMATS:{best:'bestvideo+bestaudio/best'},
     getJob:()=>job,
@@ -30,8 +32,15 @@ async function exercise({type='audio',output='valid',mediaHost='audiomack.com'}=
     isTikTokHost:hostname=>hostname==='tiktok.com',
     tryResolveTikTokPhoto:async()=>{resolverInvocations++;throw new Error('Unrelated photo resolver executed');},
     downloadJobQueue:{add:async(fn)=>fn()},
+    runExternalEngine:async(command,args)=>{
+      assert.equal(command,'gallery-dl');
+      assert.ok(args.includes('extractor.pinterest.videos=true'));
+      const file=path.join(dir,id+'.mp4');
+      await reliability.runMediaTool('ffmpeg',['-f','lavfi','-i','color=size=120x80:rate=10:duration=1','-c:v','mpeg4','-y',file]);
+      return {stdout:''};
+    },
     safeHost:url=>new URL(url).hostname,
-    providerRouter:{classifyPlatform:()=>mediaHost==='audiomack.com'?'generic':'mock'},
+    providerRouter:{classifyPlatform:()=>mediaHost==='audiomack.com'?'generic':mediaHost==='pinterest.com'?'pinterest':'mock'},
     diagLog:()=>{},
     compactDetail:text=>String(text).slice(0,300),
     downloadCuriousApiProvider:async()=>{
@@ -82,4 +91,12 @@ test('opt-in provider fallback can recover a failed video engine and is still ve
  const r=await exercise({type:'video',output:'primary-error'});
  assert.equal(r.error,null);assert.equal(r.status,'done');
  assert.equal(r.verified.video,true);assert.equal(r.filename,'e2e-simulated-job.mp4');
+});
+
+test('Pinterest video fallback is validated and delivers playable media',async()=>{
+  const r=await exercise({type:'video',output:'primary-error',mediaHost:'pinterest.com'});
+  assert.equal(r.error,null);
+  assert.equal(r.status,'done');
+  assert.equal(r.verified.video,true);
+  assert.equal(r.filename,'e2e-simulated-job.mp4');
 });
