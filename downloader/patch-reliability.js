@@ -6,7 +6,7 @@ function patch(oldText, newText, label) {
   if (!s.includes(oldText)) throw new Error(`Reliability build integration changed: ${label}`);
   s = s.replace(oldText, newText);
 }
-patch("const { v4: uuidv4 } = require('uuid');", "const { v4: uuidv4 } = require('uuid');\nconst reliability = require('./reliability-core');", 'imports');
+patch("const { v4: uuidv4 } = require('uuid');", "const { v4: uuidv4 } = require('uuid');\nconst reliability = require('./reliability-core');\nconst urlRecovery = require('./url-recovery');", 'imports');
 
 const safeCors = `
 const downloaderOrigins = new Set(String(process.env.CORS_ALLOWED_ORIGINS || '').split(',').map(v => v.trim()).filter(Boolean));
@@ -59,6 +59,16 @@ patch("    proc.stderr.on('data', data => { stderr += data.toString(); });",
 
 async function newProcessJob(id) {
   const job = getJob(id); if (!job) return;
+  if (providerRouter.classifyPlatform(job.url) === 'spotify') {
+    throw new Error('Spotify does not provide an authorized downloadable audio file through this tool. Use Spotify playback or its official offline feature.');
+  }
+  const urlResolution = await urlRecovery.resolveTikTokShareUrl(job.url, { validateUrl: isSafeUrl });
+  if (urlResolution.status === 'resolved') {
+    diagLog('tiktok_shortlink_resolved', { jobId:id, providerPlatform:'tiktok' });
+    job.url = urlResolution.url;
+  } else if (urlResolution.status === 'homepage') {
+    diagLog('tiktok_shortlink_homepage', { jobId:id, providerPlatform:'tiktok' });
+  }
   await updateJobStage(id, 'validate', 10, 'Checking the link and available formats.');
   let photo = null;
   if (isTikTokHost(new URL(job.url).hostname)) {
@@ -94,19 +104,41 @@ async function newProcessJob(id) {
   } catch (primaryError) {
     // Explicit opt-in only: outside services can see submitted media links.
     if (job.type !== 'video') throw primaryError;
-    if (process.env.CURIOUSAPI_ENABLED === 'true') {
+    // Route Pinterest video-pins to the existing gallery-dl engine on extractor failure.
+    // The file must still pass FFprobe validation before completion.
+    if (providerRouter.classifyPlatform(job.url) === 'pinterest') {
+      try {
+        await downloadJobQueue.add(
+          () => runExternalEngine('gallery-dl',
+            ['--no-input', '-D', DOWNLOAD_DIR, '-f', id + '.{extension}',
+             '-o', 'extractor.pinterest.videos=true', '--range', '1-10',
+             '--filter', "extension in ('mp4','webm','mov','m4v')", job.url],
+            {urlHost:safeHost(job.url),operation:'download',providerPlatform:'pinterest',fallback:true,jobId:id}),
+          {urlHost:safeHost(job.url),operation:'gallery-fallback',providerPlatform:'pinterest'}
+        );
+        alternativeProvider = 'gallery-dl';
+      } catch (error) {
+        diagLog('gallery_dl_failed', {jobId:id,providerPlatform:'pinterest',detail:compactDetail(error.message,300)});
+      }
+    }
+    if (!alternativeProvider && process.env.CURIOUSAPI_ENABLED === 'true') {
       try {
         await downloadJobQueue.add(() => downloadCuriousApiProvider(job, info), { operation: 'external-fallback', providerPlatform: 'curiousapi' });
         alternativeProvider = 'curiousapi';
       } catch (error) { diagLog('curiousapi_failed', { jobId:id, detail:compactDetail(error.message,300) }); }
     }
-    if (!alternativeProvider && process.env.VIDKRAKEN_ENABLED === 'true' && process.env.VIDKRAKEN_API_KEY) {
+    if (!alternativeProvider && providerRouter.classifyPlatform(job.url) === 'youtube' && process.env.VIDKRAKEN_ENABLED === 'true' && process.env.VIDKRAKEN_API_KEY) {
       try {
         await downloadJobQueue.add(() => downloadVidKrakenProvider(job, info), { operation: 'external-fallback', providerPlatform: 'vidkraken' });
         alternativeProvider = 'vidkraken';
       } catch (error) { diagLog('vidkraken_failed', { jobId:id, detail:compactDetail(error.message,300) }); }
     }
-    if (!alternativeProvider) throw primaryError;
+    if (!alternativeProvider) {
+      if (urlResolution.status === 'homepage') {
+        throw new Error('TikTok redirected this share link to its homepage rather than a video. Open the post and copy its full video URL, or try a fresh share link.');
+      }
+      throw primaryError;
+    }
     engineResult = { stdout:'' };
   }
   await updateJobStage(id, 'process', 83, job.type === 'audio' ? 'Verifying and converting the audio file.' : 'Verifying the video file.');
@@ -141,6 +173,7 @@ const start = s.indexOf('async function processJob(id) {');
 const end = s.indexOf('\n// ---------- Job/history ----------', start);
 if (start < 0 || end < 0) throw new Error('Could not locate the complete job handler.');
 s = s.slice(0, start) + newProcessJob.toString().replace('async function newProcessJob','async function processJob') + '\n' + s.slice(end);
+s = s.replace('gallery-dl (installed; reserved for future gallery/image routing)', 'gallery-dl (Pinterest video fallback)');
 fs.writeFileSync('server.js', s, 'utf8');
 
 const h = 'public/index.html';

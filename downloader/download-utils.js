@@ -69,6 +69,7 @@ function normalizeDownloadError(error) {
   const raw = String(error?.message || error || '').replace(/\s+/g, ' ').trim();
   const text = raw.toLowerCase();
 
+  if (text.includes('spotify does not provide') || text.includes('tiktok redirected this share link')) return raw;
   if (text.includes('unsupported url')) {
     return 'That link is not supported by the available download providers.';
   }

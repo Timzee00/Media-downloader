@@ -17,6 +17,8 @@ const PLATFORM_RULES = [
   { id: 'threads', hosts: ['threads.net', 'www.threads.net'] },
   { id: 'reddit', hosts: ['reddit.com', 'www.reddit.com', 'old.reddit.com', 'redd.it'] },
   { id: 'audiomack', hosts: ['audiomack.com', 'www.audiomack.com'] },
+  { id: 'pinterest', hosts: ['pinterest.com', 'www.pinterest.com', 'pin.it', 'www.pin.it'] },
+  { id: 'spotify', hosts: ['open.spotify.com', 'spotify.com'] },
   { id: 'snapchat', hosts: ['snapchat.com', 'www.snapchat.com'] },
 ];
 
@@ -77,22 +79,31 @@ async function runProviderPlan({
   try {
     return await runEngine('yt-dlp', args, commonMeta);
   } catch (primaryError) {
-    if (operation !== 'download' || typeof runYouGet !== 'function') throw primaryError;
+    let lastPrimaryError = primaryError;
+    if (plan.platform === 'tiktok') {
+      try {
+        return await runEngine('yt-dlp', ['--impersonate', 'chrome', ...args],
+          { ...commonMeta, retryStrategy: 'browser-impersonation' });
+      } catch (retryError) {
+        lastPrimaryError = retryError;
+      }
+    }
+    if (operation !== 'download' || typeof runYouGet !== 'function') throw lastPrimaryError;
 
     try {
       return await runYouGet(url, destinationPrefix, {
         providerPlatform: plan.platform,
         providerPlan: plan,
-        primaryError: primaryError.message,
+        primaryError: lastPrimaryError.message,
       });
     } catch (fallbackError) {
       const combined = new Error(
-        `All configured providers failed. ${plan.primary}: ${primaryError.message || 'failed'}. ` +
+        `All configured providers failed. ${plan.primary}: ${lastPrimaryError.message || 'failed'}. ` +
         `Fallback you-get: ${fallbackError.message || 'failed'}.`
       );
       combined.code = 'ALL_PROVIDERS_FAILED';
       combined.providerPlan = plan;
-      combined.primaryError = primaryError.message || String(primaryError);
+      combined.primaryError = lastPrimaryError.message || String(lastPrimaryError);
       combined.fallbackError = fallbackError.message || String(fallbackError);
       throw combined;
     }
