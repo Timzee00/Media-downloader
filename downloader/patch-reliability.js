@@ -267,11 +267,19 @@ if(historyBackdrop){
   // the Android browser viewport. The old brand patch also inserted a duplicate footer.
   const headerOld = '<header><h1>Media Downloader</h1><nav class="top-links" aria-label="Main navigation"><a href="/about">About</a></nav></header>';
   const headerNew = '<header><h1>Media Downloader</h1><nav class="top-links" aria-label="Main navigation"><a href="/about">About</a><button class="history-toggle" id="openHistory" type="button" aria-controls="historyPanel">History</button></nav></header>';
-  if (!html.includes(headerOld) || !html.includes('<button class="history-toggle" id="openHistory">History</button>')) {
+  const legacyHistoryButton = '<button class="history-toggle" id="openHistory">History</button>';
+  if (html.includes(headerOld) && html.includes(legacyHistoryButton)) {
+    html = html.replace(headerOld, headerNew);
+    html = html.replace(legacyHistoryButton, '');
+  } else if (html.includes('<header class="site-header">') && html.includes('id="openHistory"')) {
+    // Preserve the newer Timzee Tools mode switch and place History beside About.
+    if (html.includes(legacyHistoryButton)) {
+      html = html.replace('</a></header>', '</a><button class="history-toggle" id="openHistory" type="button" aria-controls="historyPanel">History</button></header>');
+      html = html.replace(legacyHistoryButton, '');
+    }
+  } else {
     throw new Error('Browser header changed: cannot safely move the history control');
   }
-  html = html.replace(headerOld, headerNew);
-  html = html.replace('<button class="history-toggle" id="openHistory">History</button>', '');
   // Remove only the redundant injected footer; preserve the primary site footer.
   html = html.replace(/<footer class="brand-footer"[^>]*>[\s\S]*?<\/footer>/g, '');
   html = html.replace('</style>', '.top-links{margin-right:0;gap:8px}.history-toggle{position:static;top:auto;right:auto;padding:8px 12px;flex-shrink:0}.top-links a{flex-shrink:0}@media(max-width:520px){.top-links{margin-right:0}header h1{max-width:none}} </style>');
