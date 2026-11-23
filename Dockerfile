@@ -65,6 +65,10 @@ RUN python3 patch-tiktok.py \
     && node --check /tmp/downloader-client.js \
     && python3 -c "from pathlib import Path; h=Path('public/linktree.html').read_text(); Path('/tmp/linktree-client.mjs').write_text(h.split('<script type=\"module\">',1)[1].split('</script>',1)[0])" \
     && node --check /tmp/linktree-client.mjs \
+    && python3 -c "from pathlib import Path; h=Path('public/admin.html').read_text(); Path('/tmp/clipora-admin.mjs').write_text(h.split('<script type=\"module\">',1)[1].split('</script>',1)[0])" \
+    && node --check /tmp/clipora-admin.mjs \
+    && python3 -c "from pathlib import Path; h=Path('public/plans.html').read_text(); Path('/tmp/clipora-plans.mjs').write_text(h.split('<script type=\"module\">',1)[1].split('</script>',1)[0])" \
+    && node --check /tmp/clipora-plans.mjs \
     && node --check linktree.js \
     && node --check server.js \
     && node --check provider-router.js \
