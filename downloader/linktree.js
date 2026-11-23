@@ -36,7 +36,7 @@ router.get('/public/:username', async (req, res) => {
     const username = cleanUsername(req.params.username);
     const result = await database().query(
       `SELECT p.username,p.display_name,p.bio,p.avatar_url,p.cover_url,p.theme,
-        COALESCE(json_agg(json_build_object('id',l.id,'title',l.title,'url',l.url,'icon',l.icon,'sort_order',l.sort_order))
+        COALESCE(json_agg(json_build_object('id',l.id,'title',l.title,'url',l.url,'icon',l.icon,'sort_order',l.sort_order) ORDER BY l.sort_order,l.id)
         FILTER (WHERE l.id IS NOT NULL AND l.is_active), '[]'::json) AS links
        FROM linktree_profiles p LEFT JOIN linktree_links l ON l.profile_id=p.id
        WHERE p.username=$1 AND p.is_published=TRUE
@@ -51,7 +51,7 @@ router.get('/me', requireUser, async (req, res) => {
   try {
     const result = await database().query(
       `SELECT p.id,p.username,p.display_name,p.bio,p.avatar_url,p.cover_url,p.theme,p.is_published,
-       COALESCE(json_agg(json_build_object('id',l.id,'title',l.title,'url',l.url,'icon',l.icon,'sort_order',l.sort_order,'is_active',l.is_active))
+       COALESCE(json_agg(json_build_object('id',l.id,'title',l.title,'url',l.url,'icon',l.icon,'sort_order',l.sort_order,'is_active',l.is_active) ORDER BY l.sort_order,l.id)
        FILTER (WHERE l.id IS NOT NULL), '[]'::json) AS links
        FROM linktree_profiles p LEFT JOIN linktree_links l ON l.profile_id=p.id
        WHERE p.auth_user_id=$1 GROUP BY p.id LIMIT 1`, [req.userId]);
