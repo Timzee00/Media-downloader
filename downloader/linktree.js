@@ -35,7 +35,7 @@ router.get('/public/:username', async (req, res) => {
   try {
     const username = cleanUsername(req.params.username);
     const result = await database().query(
-      `SELECT p.username,p.display_name,p.bio,p.avatar_url,p.cover_url,p.theme,
+      `SELECT p.username,p.display_name,p.bio,CASE WHEN p.avatar_data IS NOT NULL THEN '/api/linktree/avatar/'||p.username ELSE p.avatar_url END AS avatar_url,p.cover_url,p.theme,
         COALESCE(json_agg(json_build_object('id',l.id,'title',l.title,'url',l.url,'icon',l.icon,'sort_order',l.sort_order) ORDER BY l.sort_order,l.id)
         FILTER (WHERE l.id IS NOT NULL AND l.is_active), '[]'::json) AS links
        FROM linktree_profiles p LEFT JOIN linktree_links l ON l.profile_id=p.id
@@ -50,13 +50,42 @@ router.get('/public/:username', async (req, res) => {
 router.get('/me', requireUser, async (req, res) => {
   try {
     const result = await database().query(
-      `SELECT p.id,p.username,p.display_name,p.bio,p.avatar_url,p.cover_url,p.theme,p.is_published,
+      `SELECT p.id,p.username,p.display_name,p.bio,CASE WHEN p.avatar_data IS NOT NULL THEN '/api/linktree/avatar/'||p.username ELSE p.avatar_url END AS avatar_url,p.cover_url,p.theme,p.is_published,
        COALESCE(json_agg(json_build_object('id',l.id,'title',l.title,'url',l.url,'icon',l.icon,'sort_order',l.sort_order,'is_active',l.is_active) ORDER BY l.sort_order,l.id)
        FILTER (WHERE l.id IS NOT NULL), '[]'::json) AS links
        FROM linktree_profiles p LEFT JOIN linktree_links l ON l.profile_id=p.id
        WHERE p.auth_user_id=$1 GROUP BY p.id LIMIT 1`, [req.userId]);
     res.json({ profile: result.rows[0] || null });
   } catch (error) { console.error('Link Tree owner profile:', error.message); res.status(503).json({ error: 'Could not load your profile.' }); }
+});
+
+
+router.put('/profile/avatar', requireUser, express.raw({ type: ['image/jpeg','image/png','image/webp'], limit: '2mb' }), async (req, res) => {
+  const mime = req.get('content-type') || '';
+  const bytes = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  if (!bytes.length || bytes.length > 2 * 1024 * 1024) return res.status(400).json({ error: 'Choose an image smaller than 2 MB.' });
+  const valid = mime === 'image/jpeg' ? bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+    : mime === 'image/png' ? bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))
+    : mime === 'image/webp' ? bytes.toString('ascii',0,4) === 'RIFF' && bytes.toString('ascii',8,12) === 'WEBP' : false;
+  if (!valid) return res.status(415).json({ error: 'The uploaded file is not a valid JPG, PNG or WebP image.' });
+  try {
+    const result = await database().query(
+      `UPDATE linktree_profiles SET avatar_data=$1,avatar_mime=$2,avatar_url=NULL,updated_at=NOW()
+       WHERE auth_user_id=$3 RETURNING username`, [bytes,mime,req.userId]);
+    if (!result.rowCount) return res.status(409).json({ error: 'Save your profile before uploading a photo.' });
+    res.json({ avatar_url: '/api/linktree/avatar/' + result.rows[0].username });
+  } catch (error) { console.error('Link Tree avatar upload:', error.message); res.status(503).json({ error: 'Could not save your profile photo.' }); }
+});
+
+router.get('/avatar/:username', async (req, res) => {
+  try {
+    const result = await database().query(
+      'SELECT avatar_data,avatar_mime FROM linktree_profiles WHERE username=$1 AND is_published=TRUE AND avatar_data IS NOT NULL',
+      [cleanUsername(req.params.username)]);
+    if (!result.rowCount) return res.status(404).end();
+    res.set({ 'Content-Type': result.rows[0].avatar_mime, 'Cache-Control': 'public, max-age=3600', 'X-Content-Type-Options': 'nosniff' });
+    res.send(result.rows[0].avatar_data);
+  } catch (error) { console.error('Link Tree avatar fetch:', error.message); res.status(503).end(); }
 });
 
 router.put('/profile', requireUser, async (req, res) => {
