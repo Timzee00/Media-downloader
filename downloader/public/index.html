@@ -86,12 +86,13 @@
   .site-footer { text-align:center; color:var(--muted); padding:0 16px 26px; font-size:12px; }
   .site-footer a { color:var(--accent); }
   @media (max-width:560px) { header.site-header{padding:10px 8px;gap:7px}.site-header h1{font-size:13px}.mode-switch{order:3;width:100%;justify-content:center}.mode-tab{flex:1;justify-content:center;padding:9px 8px;font-size:10px}.about-link{margin-left:auto}.history-toggle{padding:7px 9px;font-size:11px}main{width:calc(100% - 16px);margin:10px auto 14px;padding:0}.card{padding:16px;border-radius:20px}.history-panel{width:min(360px,100vw)}.stage-time{display:none}.progress-head{padding:12px}.stage-list{padding:10px 12px}.stage{grid-template-columns:26px minmax(0,1fr);gap:8px}.stage-detail{overflow-wrap:anywhere}}
+  .history-toggle{position:static}
 </style>
 </head>
 <body>
 <div id="loginOverlay" class="hidden"><div class="card"><h2 style="margin-top:0;font-size:16px;">Enter password</h2><input type="password" id="passwordInput" placeholder="Access password" /><button class="primary" id="loginBtn">Unlock</button><p id="loginError"></p></div></div>
 <div id="app" class="hidden">
-  <header class="site-header"><h1>Timzee Tools</h1><nav class="mode-switch" aria-label="Main navigation"><a class="mode-tab active" href="/" aria-current="page"><span class="mode-dot"></span>Media Download</a><a class="mode-tab" href="/linktree"><span class="mode-dot"></span>Link Tree</a></nav><a class="about-link" href="/about">About</a><button class="history-toggle" id="openHistory">History</button></header>
+  <header class="site-header"><h1>Timzee Tools</h1><nav class="mode-switch" aria-label="Main navigation"><a class="mode-tab active" href="/" aria-current="page"><span class="mode-dot"></span>Media Download</a><a class="mode-tab" href="/linktree"><span class="mode-dot"></span>Link Tree</a></nav><a class="about-link" href="/about">About</a><button class="history-toggle" id="openHistory" aria-controls="historyPanel">History</button></header>
   <div class="history-panel" id="historyPanel"><div class="history-header"><strong>Download History</strong><button id="closeHistory">&times;</button></div><div id="historyList"></div></div>
   <main><div class="card">
     <input type="text" id="urlInput" placeholder="Paste a video or audio link..." />

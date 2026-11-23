@@ -69,7 +69,7 @@ server.write_text(text, encoding='utf-8')
 index = Path('public/index.html')
 html = index.read_text(encoding='utf-8')
 html = html.replace('<title>Media Downloader</title>', '<title>Media Downloader — Powered by Timzee Corp</title>', 1)
-if 'class="brand-footer"' not in html:
+if 'class="brand-footer"' not in html and 'class="site-footer"' not in html:
     css_marker = '  @keyframes spin { to { transform:rotate(360deg); } }'
     css = '  .brand-footer { text-align:center; padding:0 20px 28px; color:var(--muted); font-size:11px; letter-spacing:.02em; }\n  .brand-footer strong { color:var(--text); font-weight:700; }\n'
     if css_marker not in html:
