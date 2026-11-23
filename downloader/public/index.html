@@ -7,7 +7,7 @@
 <style>
   :root { --bg:#0f172a; --card:#1a2338; --accent:#22d3ee; --text:#e5e7eb; --muted:#94a3b8; --border:#263049; --success:#4ade80; --danger:#fb7185; }
   * { box-sizing:border-box; }
-  body { margin:0; min-height:100vh; min-height:100svh; overflow-x:hidden; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif; background:radial-gradient(ellipse at 12% 4%,rgba(14,116,144,.48),transparent 42%),radial-gradient(ellipse at 88% 76%,rgba(91,33,182,.42),transparent 45%),#050c18; background-attachment:fixed; color:var(--text); }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif; background:var(--bg); color:var(--text); }
   header { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:16px 20px; border-bottom:1px solid rgba(255,255,255,.1); background:rgba(15,23,42,.58); backdrop-filter:blur(22px) saturate(160%); -webkit-backdrop-filter:blur(22px) saturate(160%); position:sticky;top:0;z-index:100; }
   .site-header h1{font-size:17px;white-space:nowrap;letter-spacing:-.03em}
   .mode-switch{display:flex;align-items:center;gap:4px;padding:5px;border:1px solid rgba(255,255,255,.14);border-radius:999px;background:rgba(255,255,255,.055);box-shadow:inset 0 1px 0 rgba(255,255,255,.08)}
@@ -20,11 +20,11 @@
   @keyframes ambientDrift{to{transform:translate3d(2%, -1%,0) scale(1.04)}}
   @media(max-width:560px){.site-header{padding:12px 10px;gap:8px}.site-header h1{font-size:14px}.mode-tab{padding:9px 10px;font-size:11px;gap:6px}.about-link{font-size:11px}}
   header h1 { font-size:18px; margin:0; }
-  main { width:min(calc(100% - 28px),640px); min-height:calc(100svh - 142px); margin:clamp(14px,4vh,34px) auto 20px; padding:clamp(14px,3vw,22px); display:flex; align-items:flex-start; justify-content:center; }
-  .card { position:relative; isolation:isolate; overflow:hidden; width:100%; background:linear-gradient(135deg,rgba(255,255,255,.19),rgba(180,225,255,.085) 34%,rgba(13,27,49,.38) 100%); border:1px solid rgba(226,245,255,.3); border-radius:24px; padding:clamp(18px,4vw,26px); backdrop-filter:blur(30px) saturate(175%); -webkit-backdrop-filter:blur(30px) saturate(175%); box-shadow:0 28px 90px rgba(0,0,0,.42),0 0 48px rgba(34,211,238,.09),inset 0 1px 0 rgba(255,255,255,.34); } .card:before{content:"";position:absolute;inset:0;z-index:0;pointer-events:none;background:radial-gradient(ellipse at 8% 0%,rgba(255,255,255,.19),transparent 44%),linear-gradient(115deg,rgba(255,255,255,.055),transparent 42%,rgba(103,232,249,.04));} .card>*{position:relative;z-index:1}
-  input[type=text],input[type=password] { width:100%; padding:12px 14px; border-radius:8px; border:1px solid var(--border); background:rgba(2,12,26,.42); color:var(--text); font-size:14px; }
+  main { max-width:640px; margin:0 auto; padding:32px 20px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:24px; }
+  input[type=text],input[type=password] { width:100%; padding:12px 14px; border-radius:8px; border:1px solid var(--border); background:#0b1222; color:var(--text); font-size:14px; }
   .row { display:flex; gap:10px; margin-top:14px; flex-wrap:wrap; }
-  select { flex:1; min-width:120px; padding:10px; border-radius:8px; border:1px solid var(--border); background:rgba(2,12,26,.42); color:var(--text); }
+  select { flex:1; min-width:120px; padding:10px; border-radius:8px; border:1px solid var(--border); background:#0b1222; color:var(--text); }
   button.primary { margin-top:16px; width:100%; padding:12px; border:none; border-radius:8px; background:var(--accent); color:#06202b; font-weight:600; font-size:15px; cursor:pointer; }
   button.primary:disabled { opacity:.5; cursor:not-allowed; }
   #statusBox { margin-top:16px; font-size:13px; color:var(--muted); min-height:20px; }
@@ -33,9 +33,9 @@
   .top-links { display:flex; gap:12px; margin-right:104px; align-items:center; }
   .top-links a { font-size:13px; font-weight:650; color:var(--accent); border:1px solid var(--border); border-radius:8px; padding:8px 12px; text-decoration:none; }
   .top-links a:hover { background:var(--card); }
-  .history-toggle { position:static; flex:0 0 auto; padding:8px 14px; cursor:pointer; background:var(--card); color:var(--text); border:1px solid var(--border); border-radius:8px; }
-  .history-panel { position:fixed; top:0; right:0; transform:translateX(105%); width:min(360px,100vw); max-width:100vw; height:100dvh; background:#101728; border-left:1px solid var(--border); transition:transform .25s ease; overflow-y:auto; z-index:1000; }
-  .history-panel.open { transform:translateX(0); }
+  .history-toggle { position:fixed; top:82px; right:16px; padding:8px 14px; cursor:pointer; background:var(--card); color:var(--text); border:1px solid var(--border); border-radius:8px; }
+  .history-panel { position:fixed; top:0; right:-340px; width:340px; height:100vh; background:#101728; border-left:1px solid var(--border); transition:right .25s ease; overflow-y:auto; z-index:1000; }
+  .history-panel.open { right:0; }
   .history-header { display:flex; justify-content:space-between; align-items:center; padding:16px; border-bottom:1px solid var(--border); }
   .history-header button { background:none; border:none; color:var(--muted); font-size:20px; cursor:pointer; }
   .history-item { display:flex; gap:10px; padding:12px 16px; border-bottom:1px solid var(--border); }
@@ -46,8 +46,8 @@
   .history-item .actions { display:flex; gap:8px; margin-top:6px; }
   .history-item .actions a,.history-item .actions button { font-size:11px; padding:3px 8px; border-radius:6px; border:1px solid var(--border); background:#0b1222; color:var(--text); cursor:pointer; text-decoration:none; }
   .empty { padding:20px; color:var(--muted); font-size:13px; text-align:center; }
-  #loginOverlay { position:fixed; inset:0; padding:16px; background:rgba(3,10,22,.72); backdrop-filter:blur(28px) saturate(150%); -webkit-backdrop-filter:blur(28px) saturate(150%); display:flex; align-items:center; justify-content:center; z-index:2000; }
-  #loginOverlay .card { width:min(420px,100%); }
+  #loginOverlay { position:fixed; inset:0; background:var(--bg); display:flex; align-items:center; justify-content:center; z-index:2000; }
+  #loginOverlay .card { width:280px; }
   #loginOverlay p { color:var(--muted); font-size:13px; margin:8px 0 0; }
   .hidden { display:none !important; }
   .detected { margin-top:10px; padding:9px 10px; border:1px solid var(--border); border-radius:8px; font-size:12px; color:var(--muted); }
@@ -81,18 +81,28 @@
   .progress-panel.complete .progress-fill { background:var(--success); box-shadow:none; }
   .progress-panel.error .progress-fill { background:var(--danger); box-shadow:none; }
   @keyframes spin { to { transform:rotate(360deg); } }
-  /* Responsive viewport and stronger liquid-glass treatment */
-  html,body{width:100%;max-width:100%;overflow-x:clip}body{min-height:100svh}header.site-header{flex-wrap:wrap;min-width:0;max-width:100%;gap:10px}main{width:min(calc(100% - 24px),640px);min-height:0;max-width:100%;padding:clamp(10px,3vw,20px);margin:clamp(12px,3vh,26px) auto 20px}.card{min-width:0;max-width:100%;background:linear-gradient(135deg,rgba(255,255,255,.27),rgba(180,225,255,.15) 28%,rgba(13,27,49,.56) 70%,rgba(103,80,170,.17));border-color:rgba(226,245,255,.46);backdrop-filter:blur(36px) saturate(190%);-webkit-backdrop-filter:blur(36px) saturate(190%);box-shadow:0 30px 95px rgba(0,0,0,.5),0 0 55px rgba(34,211,238,.14),inset 0 1.5px 0 rgba(255,255,255,.48)}.card:before{background:radial-gradient(ellipse at 8% 0%,rgba(255,255,255,.28),transparent 44%),linear-gradient(115deg,rgba(255,255,255,.09),transparent 42%,rgba(103,232,249,.07))}input,select,button{max-width:100%}.row>*{min-width:0}.progress-panel{background:linear-gradient(135deg,rgba(255,255,255,.13),rgba(9,24,43,.52));backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);border-color:rgba(255,255,255,.22)}
   .site-footer { text-align:center; color:var(--muted); padding:0 16px 26px; font-size:12px; }
   .site-footer a { color:var(--accent); }
-  @media (max-width:560px) { header.site-header{padding:10px 8px;gap:7px}.site-header h1{font-size:13px}.mode-switch{order:3;width:100%;justify-content:center}.mode-tab{flex:1;justify-content:center;padding:9px 8px;font-size:10px}.about-link{margin-left:auto}.history-toggle{padding:7px 9px;font-size:11px}main{width:calc(100% - 16px);margin:10px auto 14px;padding:0}.card{padding:16px;border-radius:20px}.history-panel{width:min(360px,100vw)}.stage-time{display:none}.progress-head{padding:12px}.stage-list{padding:10px 12px}.stage{grid-template-columns:26px minmax(0,1fr);gap:8px}.stage-detail{overflow-wrap:anywhere}}
-  .history-toggle{position:static}
+  @media (max-width:520px) { main { padding:20px 14px; } .card { padding:18px; } .history-panel { width:min(340px,92vw); } .stage-time { display:none; } }
+
+/* Liquid-glass finish — visual-only; preserves the original downloader layout. */
+html,body{max-width:100%;overflow-x:hidden}
+body{min-height:100svh;background:radial-gradient(ellipse at 12% 4%,rgba(14,116,144,.48),transparent 42%),radial-gradient(ellipse at 88% 76%,rgba(91,33,182,.42),transparent 45%),#050c18;background-attachment:fixed}
+header.site-header{background:rgba(8,18,34,.56);border-bottom-color:rgba(255,255,255,.13);backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%)}
+.card{position:relative;isolation:isolate;overflow:hidden;background:linear-gradient(135deg,rgba(255,255,255,.22),rgba(180,225,255,.105) 34%,rgba(13,27,49,.48) 100%);border:1px solid rgba(226,245,255,.38);border-radius:22px;backdrop-filter:blur(32px) saturate(185%);-webkit-backdrop-filter:blur(32px) saturate(185%);box-shadow:0 28px 90px rgba(0,0,0,.46),0 0 48px rgba(34,211,238,.12),inset 0 1px 0 rgba(255,255,255,.42)}
+.card:before{content:"";position:absolute;inset:0;z-index:0;pointer-events:none;background:radial-gradient(ellipse at 8% 0%,rgba(255,255,255,.25),transparent 44%),linear-gradient(115deg,rgba(255,255,255,.08),transparent 42%,rgba(103,232,249,.06))}
+.card>*{position:relative;z-index:1}
+input[type=text],input[type=password],select{background:rgba(2,12,26,.46);border-color:rgba(226,245,255,.22);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.progress-panel{background:rgba(8,19,37,.58);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-color:rgba(226,245,255,.2)}
+@media(max-width:520px){main{width:100%;max-width:640px} .card{min-width:0;max-width:100%} .history-panel{max-width:100vw}}
+
 </style>
 </head>
 <body>
 <div id="loginOverlay" class="hidden"><div class="card"><h2 style="margin-top:0;font-size:16px;">Enter password</h2><input type="password" id="passwordInput" placeholder="Access password" /><button class="primary" id="loginBtn">Unlock</button><p id="loginError"></p></div></div>
 <div id="app" class="hidden">
-  <header class="site-header"><h1>Timzee Tools</h1><nav class="mode-switch" aria-label="Main navigation"><a class="mode-tab active" href="/" aria-current="page"><span class="mode-dot"></span>Media Download</a><a class="mode-tab" href="/linktree"><span class="mode-dot"></span>Link Tree</a></nav><a class="about-link" href="/about">About</a><button class="history-toggle" id="openHistory" aria-controls="historyPanel">History</button></header>
+  <header class="site-header"><h1>Timzee Tools</h1><nav class="mode-switch" aria-label="Main navigation"><a class="mode-tab active" href="/" aria-current="page"><span class="mode-dot"></span>Media Download</a><a class="mode-tab" href="/linktree"><span class="mode-dot"></span>Link Tree</a></nav><a class="about-link" href="/about">About</a></header>
+  <button class="history-toggle" id="openHistory">History</button>
   <div class="history-panel" id="historyPanel"><div class="history-header"><strong>Download History</strong><button id="closeHistory">&times;</button></div><div id="historyList"></div></div>
   <main><div class="card">
     <input type="text" id="urlInput" placeholder="Paste a video or audio link..." />
