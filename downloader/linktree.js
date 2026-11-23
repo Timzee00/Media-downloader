@@ -24,6 +24,8 @@ async function requireUser(req, res, next) {
     const { payload } = await jwtVerify(token, keys());
     if (!payload.sub) return res.status(401).json({ error: 'Invalid account session.' });
     req.userId = String(payload.sub);
+    req.userEmail = typeof payload.email === 'string' ? payload.email.slice(0,254) : '';
+    req.userName = typeof payload.name === 'string' ? payload.name.slice(0,80) : '';
     next();
   } catch {
     return res.status(401).json({ error: 'Your session has expired. Please sign in again.' });
@@ -311,6 +313,159 @@ router.get('/analytics', requireUser, async (req,res) => {
       GROUP BY l.id ORDER BY clicks DESC,l.sort_order LIMIT 10`,[req.userId,String(days)]);
     res.json({days,series:result.rows,top_links:top.rows});
   }catch(error){console.error('Analytics summary:',error.message);res.status(503).json({error:'Could not load analytics.'});}
+});
+
+
+// ---------- Clipora monetisation and owner administration ----------
+const OWNER_WHATSAPP = String(process.env.CLIPORA_OWNER_WHATSAPP || '2349060512980').replace(/\D/g, '');
+function requireAdmin(req, res, next) {
+  const ownerId = String(process.env.CLIPORA_ADMIN_USER_ID || '').trim();
+  if (!ownerId) return res.status(503).json({ error: 'Admin access is not configured yet. Set CLIPORA_ADMIN_USER_ID in the Render environment to the owner account ID.' });
+  if (req.userId !== ownerId) return res.status(403).json({ error: 'This account is not authorised to access the Clipora Admin Center.' });
+  next();
+}
+async function auditAdmin(userId, action, entityType, entityId, details = {}) {
+  await database().query(
+    'INSERT INTO clipora_admin_audit(admin_user_id,action,entity_type,entity_id,details) VALUES($1,$2,$3,$4,$5::jsonb)',
+    [userId, action, entityType, entityId == null ? null : String(entityId), JSON.stringify(details)]
+  );
+}
+
+router.get('/plans', async (req, res) => {
+  try {
+    const result = await database().query(
+      "SELECT id,slug,name,description,price_minor,currency,billing_interval,features FROM clipora_plans WHERE is_active=TRUE ORDER BY sort_order,id"
+    );
+    res.set('Cache-Control', 'public, max-age=60');
+    res.json({ plans: result.rows });
+  } catch (error) {
+    console.error('Clipora plans:', error.message);
+    res.status(503).json({ error: 'Plans are temporarily unavailable.' });
+  }
+});
+
+router.post('/plan-requests', requireUser, async (req, res) => {
+  const planId = Number(req.body?.plan_id);
+  const message = String(req.body?.message || '').trim().slice(0, 1000);
+  if (!Number.isSafeInteger(planId) || planId < 1) return res.status(400).json({ error: 'Choose a valid plan.' });
+  try {
+    const result = await database().query(
+      `INSERT INTO clipora_plan_requests(auth_user_id,profile_id,plan_id,plan_snapshot,customer_name,customer_email,message)
+       SELECT $1,p.id,pl.id,jsonb_build_object('slug',pl.slug,'name',pl.name,'price_minor',pl.price_minor,'currency',pl.currency,'billing_interval',pl.billing_interval,'features',pl.features),
+         COALESCE(NULLIF(p.display_name,''),$2),$3,$4
+       FROM clipora_plans pl LEFT JOIN linktree_profiles p ON p.auth_user_id=$1
+       WHERE pl.id=$5 AND pl.is_active=TRUE
+       RETURNING id,plan_snapshot,customer_name,customer_email,message,status,created_at`,
+      [req.userId, req.userName || '', req.userEmail || '', message, planId]
+    );
+    if (!result.rowCount) return res.status(404).json({ error: 'That plan is unavailable.' });
+    const request = result.rows[0];
+    const planName = request.plan_snapshot.name || 'Clipora plan';
+    const whatsappText = [
+      'Clipora monetisation request',
+      'Request: ' + request.id,
+      'Plan: ' + planName,
+      'Customer: ' + (request.customer_name || 'Not provided'),
+      'Email: ' + (request.customer_email || 'Not provided'),
+      'User ID: ' + req.userId,
+      request.message ? 'Message: ' + request.message : ''
+    ].filter(Boolean).join('\n');
+    const whatsappUrl = 'https://wa.me/' + OWNER_WHATSAPP + '?text=' + encodeURIComponent(whatsappText);
+    res.status(201).json({ request, whatsapp_url: whatsappUrl });
+  } catch (error) {
+    console.error('Clipora plan request:', error.message);
+    res.status(503).json({ error: 'Could not submit your plan request.' });
+  }
+});
+
+router.get('/admin/whoami', requireUser, (req, res) => {
+  res.json({ user_id: req.userId, configured: Boolean(String(process.env.CLIPORA_ADMIN_USER_ID || '').trim()), authorised: Boolean(String(process.env.CLIPORA_ADMIN_USER_ID || '').trim()) && req.userId === String(process.env.CLIPORA_ADMIN_USER_ID).trim() });
+});
+
+router.get('/admin/overview', requireUser, requireAdmin, async (req, res) => {
+  try {
+    const [counts, requests, plans, audit] = await Promise.all([
+      database().query(`SELECT
+        (SELECT COUNT(*)::int FROM clipora_plan_requests) AS total_requests,
+        (SELECT COUNT(*)::int FROM clipora_plan_requests WHERE status='pending') AS pending_requests,
+        (SELECT COUNT(*)::int FROM clipora_plans WHERE is_active=TRUE) AS active_plans,
+        (SELECT COUNT(DISTINCT auth_user_id)::int FROM linktree_profiles) AS creators`),
+      database().query(`SELECT r.id,r.auth_user_id,r.customer_name,r.customer_email,r.message,r.status,r.admin_notes,r.created_at,r.plan_snapshot,
+        p.username FROM clipora_plan_requests r LEFT JOIN linktree_profiles p ON p.id=r.profile_id
+        ORDER BY CASE WHEN r.status='pending' THEN 0 ELSE 1 END,r.created_at DESC LIMIT 100`),
+      database().query('SELECT id,slug,name,description,price_minor,currency,billing_interval,features,is_active,sort_order FROM clipora_plans ORDER BY sort_order,id'),
+      database().query('SELECT id,action,entity_type,entity_id,details,created_at FROM clipora_admin_audit ORDER BY created_at DESC LIMIT 20')
+    ]);
+    res.json({ stats: counts.rows[0], requests: requests.rows, plans: plans.rows, audit: audit.rows });
+  } catch (error) {
+    console.error('Clipora admin overview:', error.message);
+    res.status(503).json({ error: 'Could not load the Admin Center.' });
+  }
+});
+
+router.post('/admin/plans', requireUser, requireAdmin, async (req, res) => {
+  const slug = String(req.body?.slug || '').trim().toLowerCase();
+  const name = String(req.body?.name || '').trim().slice(0,60);
+  const description = String(req.body?.description || '').trim().slice(0,240);
+  const price = Number(req.body?.price_naira);
+  const interval = ['monthly','yearly','one_time'].includes(req.body?.billing_interval) ? req.body.billing_interval : 'monthly';
+  const features = Array.isArray(req.body?.features) ? req.body.features.map(x => String(x).trim().slice(0,100)).filter(Boolean).slice(0,20) : [];
+  if (!/^[a-z0-9-]{2,40}$/.test(slug) || !name || !Number.isSafeInteger(price) || price < 0 || price > 100000000) return res.status(400).json({ error: 'Enter a valid plan name, slug and whole-naira price.' });
+  try {
+    const result = await database().query(
+      `INSERT INTO clipora_plans(slug,name,description,price_minor,billing_interval,features,sort_order)
+       VALUES($1,$2,$3,$4,$5,$6::jsonb,(SELECT COALESCE(MAX(sort_order),0)+1 FROM clipora_plans))
+       RETURNING id,slug,name,description,price_minor,currency,billing_interval,features,is_active,sort_order`,
+      [slug,name,description,price*100,interval,JSON.stringify(features)]
+    );
+    await auditAdmin(req.userId,'plan.created','plan',result.rows[0].id,{slug,name});
+    res.status(201).json({ plan: result.rows[0] });
+  } catch (error) {
+    if (error.code === '23505') return res.status(409).json({ error: 'That plan slug already exists.' });
+    console.error('Clipora plan create:', error.message);
+    res.status(503).json({ error: 'Could not create the plan.' });
+  }
+});
+
+router.patch('/admin/plans/:id', requireUser, requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  const active = req.body?.is_active;
+  const price = req.body?.price_naira;
+  if (!Number.isSafeInteger(id) || id < 1 || (active === undefined && price === undefined)) return res.status(400).json({ error: 'Invalid plan update.' });
+  if (price !== undefined && (!Number.isSafeInteger(Number(price)) || Number(price) < 0 || Number(price) > 100000000)) return res.status(400).json({ error: 'Enter a valid whole-naira price.' });
+  try {
+    const result = await database().query(
+      `UPDATE clipora_plans SET is_active=COALESCE($1,is_active),price_minor=COALESCE($2,price_minor),updated_at=NOW()
+       WHERE id=$3 RETURNING id,slug,name,description,price_minor,currency,billing_interval,features,is_active,sort_order`,
+      [typeof active === 'boolean' ? active : null, price === undefined ? null : Number(price)*100, id]
+    );
+    if (!result.rowCount) return res.status(404).json({ error: 'Plan not found.' });
+    await auditAdmin(req.userId,'plan.updated','plan',id,{is_active:active,price_naira:price});
+    res.json({ plan: result.rows[0] });
+  } catch (error) {
+    console.error('Clipora plan update:', error.message);
+    res.status(503).json({ error: 'Could not update the plan.' });
+  }
+});
+
+router.patch('/admin/requests/:id', requireUser, requireAdmin, async (req, res) => {
+  const id = String(req.params.id || '');
+  const status = req.body?.status;
+  const notes = String(req.body?.admin_notes || '').trim().slice(0,2000);
+  if (!/^[0-9a-f-]{36}$/i.test(id) || !['pending','approved','rejected'].includes(status)) return res.status(400).json({ error: 'Invalid request update.' });
+  try {
+    const result = await database().query(
+      `UPDATE clipora_plan_requests SET status=$1,admin_notes=$2,reviewed_by=$3,reviewed_at=NOW(),updated_at=NOW()
+       WHERE id=$4 RETURNING id,status,admin_notes,reviewed_at`,
+      [status,notes,req.userId,id]
+    );
+    if (!result.rowCount) return res.status(404).json({ error: 'Request not found.' });
+    await auditAdmin(req.userId,'plan_request.'+status,'plan_request',id,{admin_notes:notes});
+    res.json({ request: result.rows[0] });
+  } catch (error) {
+    console.error('Clipora request update:', error.message);
+    res.status(503).json({ error: 'Could not update this request.' });
+  }
 });
 
 
