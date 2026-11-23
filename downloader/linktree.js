@@ -180,6 +180,7 @@ router.patch('/links/:id', requireUser, async (req, res) => {
     const result = await database().query(
       `UPDATE linktree_links l SET title=$1,url=$2,icon=$3,is_active=$4,category=$5,description=$6,is_pinned=$7,section_id=$8,updated_at=NOW()
        FROM linktree_profiles p WHERE l.profile_id=p.id AND p.auth_user_id=$9 AND l.id=$10
+       AND ($8::bigint IS NULL OR EXISTS(SELECT 1 FROM linktree_sections s WHERE s.id=$8 AND s.profile_id=p.id))
        RETURNING l.id,l.title,l.url,l.icon,l.sort_order,l.is_active,l.category,l.description,l.is_pinned,l.section_id`,[title,url,icon,isActive,category,description,isPinned,Number.isSafeInteger(sectionId)?sectionId:null,req.userId,id]);
     if (!result.rowCount) return res.status(404).json({ error: 'Link not found.' });
     res.json({ link: result.rows[0] });
