@@ -19,6 +19,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Public informational page (does not expose private download data).
 app.get('/about', (req, res) => res.sendFile(path.join(__dirname, 'public', 'about.html')));
 app.get('/linktree', (req, res) => res.sendFile(path.join(__dirname, 'public', 'linktree.html')));
+app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
+app.get('/plans', (req, res) => res.sendFile(path.join(__dirname, 'public', 'plans.html')));
 app.get('/u/:username', (req, res) => res.sendFile(path.join(__dirname, 'public', 'linktree.html')));
 
 const DATA_DIR = fs.existsSync('/data') ? '/data' : path.join(__dirname, 'data');
