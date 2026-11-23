@@ -8,7 +8,9 @@ test('built page contains exactly one visible footer and history button', () => 
   const html = fs.readFileSync(path.join(__dirname,'public/index.html'),'utf8');
   assert.equal((html.match(/id="openHistory"/g)||[]).length,1);
   assert.match(html, /aria-controls="historyPanel"/);
-  const header=html.slice(html.indexOf('<header>'),html.indexOf('</header>')+9);
+  const headerStart=html.indexOf('<header');
+  assert.notEqual(headerStart,-1);
+  const header=html.slice(headerStart,html.indexOf('</header>',headerStart)+9);
   assert.match(header, /id="openHistory"/);
   assert.equal((html.match(/class="site-footer"/g)||[]).length,1);
   assert.equal((html.match(/class="brand-footer"/g)||[]).length,0);
