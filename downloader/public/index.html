@@ -8,7 +8,17 @@
   :root { --bg:#0f172a; --card:#1a2338; --accent:#22d3ee; --text:#e5e7eb; --muted:#94a3b8; --border:#263049; --success:#4ade80; --danger:#fb7185; }
   * { box-sizing:border-box; }
   body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif; background:var(--bg); color:var(--text); }
-  header { display:flex; justify-content:space-between; align-items:center; padding:16px 20px; border-bottom:1px solid var(--border); }
+  header { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:16px 20px; border-bottom:1px solid rgba(255,255,255,.1); background:rgba(15,23,42,.58); backdrop-filter:blur(22px) saturate(160%); -webkit-backdrop-filter:blur(22px) saturate(160%); position:sticky;top:0;z-index:100; }
+  .site-header h1{font-size:17px;white-space:nowrap;letter-spacing:-.03em}
+  .mode-switch{display:flex;align-items:center;gap:4px;padding:5px;border:1px solid rgba(255,255,255,.14);border-radius:999px;background:rgba(255,255,255,.055);box-shadow:inset 0 1px 0 rgba(255,255,255,.08)}
+  .mode-tab{position:relative;display:flex;align-items:center;gap:8px;padding:10px 15px;border-radius:999px;color:#aab8ce;text-decoration:none;font-size:12px;font-weight:700;white-space:nowrap;transition:color .3s ease,background .45s cubic-bezier(.2,.8,.2,1),transform .45s cubic-bezier(.2,.8,.2,1)}
+  .mode-tab.active{color:#061722;background:linear-gradient(120deg,#67e8f9,#a5f3fc 55%,#c4b5fd);box-shadow:0 5px 22px rgba(34,211,238,.2)}
+  .mode-tab:active{transform:scale(.96)}
+  .mode-dot{width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.8}
+  .about-link{font-size:12px;color:var(--accent);text-decoration:none;white-space:nowrap}
+  body:before{content:"";position:fixed;inset:-30%;z-index:-1;pointer-events:none;background:radial-gradient(ellipse at 18% 10%,rgba(34,211,238,.12),transparent 42%),radial-gradient(ellipse at 85% 75%,rgba(139,92,246,.13),transparent 42%);animation:ambientDrift 18s ease-in-out infinite alternate}
+  @keyframes ambientDrift{to{transform:translate3d(2%, -1%,0) scale(1.04)}}
+  @media(max-width:560px){.site-header{padding:12px 10px;gap:8px}.site-header h1{font-size:14px}.mode-tab{padding:9px 10px;font-size:11px;gap:6px}.about-link{font-size:11px}}
   header h1 { font-size:18px; margin:0; }
   main { max-width:640px; margin:0 auto; padding:32px 20px; }
   .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:24px; }
@@ -79,7 +89,7 @@
 <body>
 <div id="loginOverlay" class="hidden"><div class="card"><h2 style="margin-top:0;font-size:16px;">Enter password</h2><input type="password" id="passwordInput" placeholder="Access password" /><button class="primary" id="loginBtn">Unlock</button><p id="loginError"></p></div></div>
 <div id="app" class="hidden">
-  <header><h1>Media Downloader</h1><nav class="top-links" aria-label="Main navigation"><a href="/about">About</a></nav></header>
+  <header class="site-header"><h1>Timzee Tools</h1><nav class="mode-switch" aria-label="Main navigation"><a class="mode-tab active" href="/" aria-current="page"><span class="mode-dot"></span>Media Download</a><a class="mode-tab" href="/linktree"><span class="mode-dot"></span>Link Tree</a></nav><a class="about-link" href="/about">About</a></header>
   <button class="history-toggle" id="openHistory">History</button>
   <div class="history-panel" id="historyPanel"><div class="history-header"><strong>Download History</strong><button id="closeHistory">&times;</button></div><div id="historyList"></div></div>
   <main><div class="card">
