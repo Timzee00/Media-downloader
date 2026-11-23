@@ -20,7 +20,7 @@
   @keyframes ambientDrift{to{transform:translate3d(2%, -1%,0) scale(1.04)}}
   @media(max-width:560px){.site-header{padding:12px 10px;gap:8px}.site-header h1{font-size:14px}.mode-tab{padding:9px 10px;font-size:11px;gap:6px}.about-link{font-size:11px}}
   header h1 { font-size:18px; margin:0; }
-  main { width:min(100% - 28px,640px); min-height:calc(100svh - 142px); margin:clamp(14px,4vh,34px) auto 20px; padding:clamp(14px,3vw,22px); display:flex; align-items:flex-start; justify-content:center; }
+  main { width:min(calc(100% - 28px),640px); min-height:calc(100svh - 142px); margin:clamp(14px,4vh,34px) auto 20px; padding:clamp(14px,3vw,22px); display:flex; align-items:flex-start; justify-content:center; }
   .card { position:relative; isolation:isolate; overflow:hidden; width:100%; background:linear-gradient(135deg,rgba(255,255,255,.19),rgba(180,225,255,.085) 34%,rgba(13,27,49,.38) 100%); border:1px solid rgba(226,245,255,.3); border-radius:24px; padding:clamp(18px,4vw,26px); backdrop-filter:blur(30px) saturate(175%); -webkit-backdrop-filter:blur(30px) saturate(175%); box-shadow:0 28px 90px rgba(0,0,0,.42),0 0 48px rgba(34,211,238,.09),inset 0 1px 0 rgba(255,255,255,.34); } .card:before{content:"";position:absolute;inset:0;z-index:0;pointer-events:none;background:radial-gradient(ellipse at 8% 0%,rgba(255,255,255,.19),transparent 44%),linear-gradient(115deg,rgba(255,255,255,.055),transparent 42%,rgba(103,232,249,.04));} .card>*{position:relative;z-index:1}
   input[type=text],input[type=password] { width:100%; padding:12px 14px; border-radius:8px; border:1px solid var(--border); background:rgba(2,12,26,.42); color:var(--text); font-size:14px; }
   .row { display:flex; gap:10px; margin-top:14px; flex-wrap:wrap; }
