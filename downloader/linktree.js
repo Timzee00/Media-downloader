@@ -291,7 +291,7 @@ function deviceType(req){const ua=String(req.get('user-agent')||'').toLowerCase(
 
 router.post('/events', async (req,res) => {
   const username=cleanUsername(req.body?.username),event=req.body?.event_type,linkId=req.body?.link_id?Number(req.body.link_id):null;
-  if(!username||!['page_view','link_click'].includes(event))return res.status(400).json({error:'Invalid analytics event.'});
+  if(!username||!['page_view','link_click'].includes(event)|| (event==='link_click'&&(!Number.isSafeInteger(linkId)||linkId<1)) || (event==='page_view'&&linkId!==null))return res.status(400).json({error:'Invalid analytics event.'});
   try{
     const result=await database().query(`INSERT INTO linktree_analytics_events(profile_id,link_id,event_type,visitor_hash,referrer_host,device_type)
       SELECT p.id,$2,$3,$4,$5,$6 FROM linktree_profiles p
@@ -315,7 +315,7 @@ router.get('/analytics', requireUser, async (req,res) => {
       LEFT JOIN linktree_analytics_events e ON e.link_id=l.id AND e.event_type='link_click'
       AND e.created_at>=NOW()-($2::text||' days')::interval
       WHERE l.profile_id=(SELECT id FROM linktree_profiles WHERE auth_user_id=$1)
-      GROUP BY l.id ORDER BY clicks DESC,l.sort_order LIMIT 10`,[req.userId,String(days)]);
+      AND l.is_active=TRUE GROUP BY l.id ORDER BY clicks DESC,l.sort_order`,[req.userId,String(days)]);
     res.json({days,series:result.rows,top_links:top.rows});
   }catch(error){console.error('Analytics summary:',error.message);res.status(503).json({error:'Could not load analytics.'});}
 });
