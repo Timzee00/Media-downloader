@@ -517,7 +517,21 @@ async function fulfilPaystackPayment(data,eventName='charge.success') {
   try {
     await client.query('BEGIN');
     const found=await client.query('SELECT * FROM clipora_payments WHERE reference=$1 FOR UPDATE',[reference]);
-    if(!found.rowCount){await client.query('ROLLBACK');return false;}
+    if(!found.rowCount){
+      const subscriptionCode=String(data.subscription?.subscription_code||data.subscription_code||'');
+      const customerCode=String(data.customer?.customer_code||'');
+      const active=await client.query(
+        "SELECT s.id,s.auth_user_id,s.plan_id,s.amount_minor,s.billing_interval,s.current_period_end FROM clipora_subscriptions s WHERE s.status='active' AND ((NULLIF($1,'') IS NOT NULL AND s.paystack_subscription_code=$1) OR (NULLIF($2,'') IS NOT NULL AND s.paystack_customer_code=$2)) ORDER BY s.created_at DESC LIMIT 1 FOR UPDATE",
+        [subscriptionCode,customerCode]);
+      if(!active.rowCount){await client.query('ROLLBACK');return false;}
+      const s=active.rows[0];
+      if(Number(data.amount)!==Number(s.amount_minor)||String(data.currency||'').toUpperCase()!=='NGN'){await client.query('ROLLBACK');return false;}
+      await client.query(
+        "INSERT INTO clipora_payments(auth_user_id,plan_id,subscription_id,reference,amount_minor,currency,status,payment_type,channel,gateway_response,paid_at) VALUES($1,$2,$3,$4,$5,'NGN','success','subscription',$6,$7::jsonb,COALESCE($8,NOW())) ON CONFLICT(reference) DO NOTHING",
+        [s.auth_user_id,s.plan_id,s.id,reference,s.amount_minor,data.channel||null,JSON.stringify({event:eventName,transaction_id:data.id||null}),data.paid_at?new Date(data.paid_at):null]);
+      await client.query("UPDATE clipora_subscriptions SET current_period_end=CASE WHEN current_period_end>NOW() THEN current_period_end ELSE NOW() END + CASE WHEN billing_interval='yearly' THEN INTERVAL '1 year' ELSE INTERVAL '1 month' END,updated_at=NOW() WHERE id=$1",[s.id]);
+      await client.query('COMMIT');return true;
+    }
     const payment=found.rows[0];
     if(Number(data.amount)!==Number(payment.amount_minor)||String(data.currency||'').toUpperCase()!==payment.currency){await client.query('ROLLBACK');return false;}
     if(payment.status==='success'){await client.query('COMMIT');return true;}
@@ -532,8 +546,8 @@ async function fulfilPaystackPayment(data,eventName='charge.success') {
       const interval=plan.rows[0].billing_interval==='yearly'?'yearly':'monthly';
       await client.query("UPDATE clipora_subscriptions SET status='cancelled',updated_at=NOW() WHERE auth_user_id=$1 AND status='active'",[payment.auth_user_id]);
       await client.query(
-        "INSERT INTO clipora_subscriptions(auth_user_id,plan_id,status,billing_interval,amount_minor,current_period_start,current_period_end,paystack_customer_code) VALUES($1,$2,'active',$3,$4,NOW(),$5,$6)",
-        [payment.auth_user_id,payment.plan_id,interval,payment.amount_minor,subscriptionEnd(interval),data.customer?.customer_code||null]);
+        "INSERT INTO clipora_subscriptions(auth_user_id,plan_id,status,billing_interval,amount_minor,current_period_start,current_period_end,paystack_customer_code,paystack_subscription_code,paystack_email_token) VALUES($1,$2,'active',$3,$4,NOW(),$5,$6,$7,$8)",
+        [payment.auth_user_id,payment.plan_id,interval,payment.amount_minor,subscriptionEnd(interval),data.customer?.customer_code||null,data.subscription?.subscription_code||null,data.subscription?.email_token||null]);
       if(plan.rows[0].slug==='business'){
         const slug='agency-'+crypto.createHash('sha256').update(payment.auth_user_id).digest('hex').slice(0,14);
         const workspace=await client.query(
@@ -573,7 +587,7 @@ async function createPaystackCheckout(req,res,opts) {
       [req.userId,opts.planId||null,reference,opts.amountMinor,opts.paymentType||'subscription',opts.quantity||1]);
     const callback=String(process.env.CLIPORA_BILLING_CALLBACK_URL||(req.protocol+'://'+req.get('host')+'/plans'));
     const checkout=await paystackRequest('/transaction/initialize',{method:'POST',body:{
-      email:req.userEmail,amount:String(opts.amountMinor),currency:'NGN',reference,callback_url:callback,
+      email:req.userEmail,amount:String(opts.amountMinor),currency:'NGN',reference,callback_url:callback,...(opts.planCode?{plan:opts.planCode}:{}),
       metadata:{user_id:req.userId,plan_id:opts.planId||null,payment_type:opts.paymentType||'subscription',quantity:opts.quantity||1}
     }});
     return res.status(201).json({authorization_url:checkout.authorization_url,reference});
@@ -587,12 +601,12 @@ router.post('/billing/checkout',requireUser,async(req,res)=>{
   const slug=String(req.body?.plan_slug||'').trim().toLowerCase();
   if(!['pro','business'].includes(slug))return res.status(400).json({error:'Choose Pro or Business.'});
   try {
-    const result=await database().query("SELECT id,price_minor,billing_interval FROM clipora_plans WHERE slug=$1 AND is_active=TRUE",[slug]);
+    const result=await database().query("SELECT id,price_minor,billing_interval,paystack_plan_code FROM clipora_plans WHERE slug=$1 AND is_active=TRUE",[slug]);
     if(!result.rowCount)return res.status(404).json({error:'This plan is not available yet.'});
     const plan=result.rows[0];
     if(Number(plan.price_minor)<100)return res.status(409).json({error:'This plan has not been priced yet.'});
     if(!['monthly','yearly'].includes(plan.billing_interval))return res.status(409).json({error:'Unsupported billing interval.'});
-    return createPaystackCheckout(req,res,{planId:plan.id,amountMinor:Number(plan.price_minor)});
+    return createPaystackCheckout(req,res,{planId:plan.id,amountMinor:Number(plan.price_minor),planCode:plan.paystack_plan_code||null});
   } catch(error) { console.error('Billing checkout:',error.message);return res.status(503).json({error:'Could not prepare checkout.'}); }
 });
 router.get('/billing/verify/:reference',requireUser,async(req,res)=>{
