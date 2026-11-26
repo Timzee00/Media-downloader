@@ -398,7 +398,7 @@ router.get('/admin/overview', requireUser, requireAdmin, async (req, res) => {
       database().query(`SELECT r.id,r.auth_user_id,r.customer_name,r.customer_email,r.message,r.status,r.admin_notes,r.created_at,r.plan_snapshot,
         p.username FROM clipora_plan_requests r LEFT JOIN linktree_profiles p ON p.id=r.profile_id
         ORDER BY CASE WHEN r.status='pending' THEN 0 ELSE 1 END,r.created_at DESC LIMIT 100`),
-      database().query('SELECT id,slug,name,description,price_minor,currency,billing_interval,features,is_active,sort_order FROM clipora_plans ORDER BY sort_order,id'),
+      database().query('SELECT id,slug,name,description,price_minor,currency,billing_interval,features,is_active,sort_order,paystack_plan_code FROM clipora_plans ORDER BY sort_order,id'),
       database().query('SELECT id,action,entity_type,entity_id,details,created_at FROM clipora_admin_audit ORDER BY created_at DESC LIMIT 20')
     ]);
     res.json({ stats: counts.rows[0], requests: requests.rows, plans: plans.rows, audit: audit.rows });
