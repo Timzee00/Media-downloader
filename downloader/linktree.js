@@ -76,9 +76,9 @@ router.put('/profile/avatar', requireUser, express.raw({ type: ['image/jpeg','im
   try {
     const result = await database().query(
       `UPDATE linktree_profiles SET avatar_data=$1,avatar_mime=$2,avatar_url=NULL,updated_at=NOW()
-       WHERE auth_user_id=$3 RETURNING username`, [bytes,mime,req.userId]);
+       WHERE auth_user_id=$3 RETURNING username,extract(epoch FROM updated_at)::bigint AS version`, [bytes,mime,req.userId]);
     if (!result.rowCount) return res.status(409).json({ error: 'Save your profile before uploading a photo.' });
-    res.json({ avatar_url: '/api/linktree/avatar/' + result.rows[0].username });
+    res.json({ avatar_url: '/api/linktree/avatar/' + result.rows[0].username + '?v=' + result.rows[0].version });
   } catch (error) { console.error('Link Tree avatar upload:', error.message); res.status(503).json({ error: 'Could not save your profile photo.' }); }
 });
 
@@ -105,9 +105,9 @@ router.put('/profile/cover', requireUser, express.raw({ type: ['image/jpeg','ima
   try {
     const result = await database().query(
       `UPDATE linktree_profiles SET cover_data=$1,cover_mime=$2,cover_url=NULL,updated_at=NOW()
-       WHERE auth_user_id=$3 RETURNING username`, [bytes,mime,req.userId]);
+       WHERE auth_user_id=$3 RETURNING username,extract(epoch FROM updated_at)::bigint AS version`, [bytes,mime,req.userId]);
     if (!result.rowCount) return res.status(409).json({ error: 'Save your profile before uploading a cover photo.' });
-    res.json({ cover_url: '/api/linktree/cover/' + result.rows[0].username });
+    res.json({ cover_url: '/api/linktree/cover/' + result.rows[0].username + '?v=' + result.rows[0].version });
   } catch (error) { console.error('Link Tree cover upload:', error.message); res.status(503).json({ error: 'Could not save your cover photo.' }); }
 });
 
