@@ -21,6 +21,7 @@ app.get('/about', (req, res) => res.sendFile(path.join(__dirname, 'public', 'abo
 app.get('/linktree', (req, res) => res.sendFile(path.join(__dirname, 'public', 'linktree.html')));
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 app.get('/plans', (req, res) => res.sendFile(path.join(__dirname, 'public', 'plans.html')));
+app.get('/business', (req, res) => res.sendFile(path.join(__dirname, 'public', 'business.html')));
 app.get('/u/:username', (req, res) => res.sendFile(path.join(__dirname, 'public', 'linktree.html')));
 
 const DATA_DIR = fs.existsSync('/data') ? '/data' : path.join(__dirname, 'data');
