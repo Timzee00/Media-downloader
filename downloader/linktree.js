@@ -436,16 +436,18 @@ router.patch('/admin/plans/:id', requireUser, requireAdmin, async (req, res) => 
   const id = Number(req.params.id);
   const active = req.body?.is_active;
   const price = req.body?.price_naira;
-  if (!Number.isSafeInteger(id) || id < 1 || (active === undefined && price === undefined)) return res.status(400).json({ error: 'Invalid plan update.' });
+  const planCode = req.body?.paystack_plan_code;
+  if (!Number.isSafeInteger(id) || id < 1 || (active === undefined && price === undefined && planCode === undefined)) return res.status(400).json({ error: 'Invalid plan update.' });
   if (price !== undefined && (!Number.isSafeInteger(Number(price)) || Number(price) < 0 || Number(price) > 100000000)) return res.status(400).json({ error: 'Enter a valid whole-naira price.' });
+  if (planCode !== undefined && planCode !== null && planCode !== '' && !/^PLN_[A-Za-z0-9]+$/.test(String(planCode).trim())) return res.status(400).json({ error: 'Enter a valid Paystack plan code (PLN_...).'});
   try {
     const result = await database().query(
-      `UPDATE clipora_plans SET is_active=COALESCE($1,is_active),price_minor=COALESCE($2,price_minor),updated_at=NOW()
-       WHERE id=$3 RETURNING id,slug,name,description,price_minor,currency,billing_interval,features,is_active,sort_order`,
-      [typeof active === 'boolean' ? active : null, price === undefined ? null : Number(price)*100, id]
+      `UPDATE clipora_plans SET is_active=COALESCE($1,is_active),price_minor=COALESCE($2,price_minor),paystack_plan_code=CASE WHEN $4 THEN $3 ELSE paystack_plan_code END,updated_at=NOW()
+       WHERE id=$5 RETURNING id,slug,name,description,price_minor,currency,billing_interval,features,is_active,sort_order`,
+      [typeof active === 'boolean' ? active : null, price === undefined ? null : Number(price)*100, planCode === undefined ? null : (String(planCode).trim() || null), planCode !== undefined, id]
     );
     if (!result.rowCount) return res.status(404).json({ error: 'Plan not found.' });
-    await auditAdmin(req.userId,'plan.updated','plan',id,{is_active:active,price_naira:price});
+    await auditAdmin(req.userId,'plan.updated','plan',id,{is_active:active,price_naira:price,paystack_plan_code:planCode===undefined?undefined:(String(planCode).trim()||null)});
     res.json({ plan: result.rows[0] });
   } catch (error) {
     console.error('Clipora plan update:', error.message);
