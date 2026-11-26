@@ -618,6 +618,19 @@ router.get('/billing/me',requireUser,async(req,res)=>{
     return res.json({subscription:sub.rows[0]||null,payments:payments.rows,workspace:workspace.rows[0]||null});
   } catch(error) { console.error('Billing account:',error.message);return res.status(503).json({error:'Could not load billing information.'}); }
 });
+router.post('/billing/profile-packs/checkout',requireUser,async(req,res)=>{
+  const quantity=Math.max(1,Math.min(20,Math.floor(Number(req.body?.quantity)||1)));
+  try {
+    const [workspace,config]=await Promise.all([
+      database().query("SELECT w.id FROM clipora_workspaces w WHERE w.owner_user_id=$1 AND EXISTS (SELECT 1 FROM clipora_subscriptions s JOIN clipora_plans p ON p.id=s.plan_id WHERE s.auth_user_id=$1 AND s.status='active' AND s.current_period_end>NOW() AND p.slug='business')",[req.userId]),
+      database().query("SELECT config_value FROM clipora_billing_config WHERE config_key='profile_packs'")
+    ]);
+    if(!workspace.rowCount)return res.status(403).json({error:'An active Business subscription is required.'});
+    const configValue=config.rows[0]?.config_value||{},price=Number(configValue.price_minor||0);
+    if(configValue.enabled!==true||price<100)return res.status(409).json({error:'Additional profile packs are not configured yet.'});
+    return createPaystackCheckout(req,res,{amountMinor:price*quantity,paymentType:'profile_pack',quantity});
+  } catch(error) { console.error('Profile pack checkout:',error.message);return res.status(503).json({error:'Could not prepare profile-pack checkout.'}); }
+});
 async function activeBusinessWorkspace(userId) {
   const result=await database().query(
     "SELECT w.*,(SELECT COUNT(*)::int FROM clipora_workspace_clients c WHERE c.workspace_id=w.id) AS used_profiles FROM clipora_workspaces w WHERE w.owner_user_id=$1 AND EXISTS (SELECT 1 FROM clipora_subscriptions s JOIN clipora_plans p ON p.id=s.plan_id WHERE s.auth_user_id=$1 AND s.status='active' AND s.current_period_end>NOW() AND p.slug='business')",
