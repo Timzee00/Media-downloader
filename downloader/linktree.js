@@ -474,4 +474,212 @@ router.patch('/admin/requests/:id', requireUser, requireAdmin, async (req, res) 
 });
 
 
+// ---------- Paystack billing and agency workspace ----------
+const PAYSTACK_SECRET = String(process.env.PAYSTACK_SECRET_KEY || '').trim();
+async function paystackRequest(endpoint, options = {}) {
+  if (!PAYSTACK_SECRET) throw new Error('Paystack is not configured. Add PAYSTACK_SECRET_KEY in Render.');
+  const response = await fetch('https://api.paystack.co' + endpoint, {
+    method: options.method || 'GET',
+    headers: { Authorization: 'Bearer ' + PAYSTACK_SECRET, 'Content-Type': 'application/json' },
+    ...(options.body ? { body: JSON.stringify(options.body) } : {})
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.status !== true) throw new Error(data.message || 'Paystack request failed.');
+  return data.data;
+}
+function paystackHexEqual(a,b) {
+  try { const x=Buffer.from(String(a||''),'hex'), y=Buffer.from(String(b||''),'hex'); return x.length===64 && y.length===64 && crypto.timingSafeEqual(x,y); } catch { return false; }
+}
+function validPaystackWebhook(req) {
+  const raw=Buffer.isBuffer(req.rawBody)?req.rawBody:null;
+  if(!raw)return false;
+  const legacy=String(req.get('x-paystack-signature')||'');
+  if(legacy && PAYSTACK_SECRET) {
+    const expected=crypto.createHmac('sha512',PAYSTACK_SECRET).update(raw).digest('hex');
+    if(paystackHexEqual(expected,legacy))return true;
+  }
+  const header=String(req.get('paystack-signature')||''), secret=String(process.env.PAYSTACK_WEBHOOK_SECRET||'');
+  if(!header||!secret)return false;
+  const parts=header.split(',').map(x=>x.trim()), timestamp=Number((parts.find(x=>x.startsWith('t='))||'').slice(2));
+  if(!Number.isFinite(timestamp)||Math.abs(Date.now()/1000-timestamp)>300)return false;
+  const expected=crypto.createHmac('sha512',secret).update(String(timestamp)+'.').update(raw).digest('hex');
+  return parts.filter(x=>x.startsWith('v1=')).some(x=>paystackHexEqual(expected,x.slice(3).split(':').pop()));
+}
+function subscriptionEnd(interval) {
+  const d=new Date();
+  if(interval==='yearly')d.setFullYear(d.getFullYear()+1);else d.setMonth(d.getMonth()+1);
+  return d;
+}
+async function fulfilPaystackPayment(data,eventName='charge.success') {
+  const reference=String(data?.reference||'').slice(0,100);
+  if(!reference||data?.status!=='success')return false;
+  const client=await database().connect();
+  try {
+    await client.query('BEGIN');
+    const found=await client.query('SELECT * FROM clipora_payments WHERE reference=$1 FOR UPDATE',[reference]);
+    if(!found.rowCount){await client.query('ROLLBACK');return false;}
+    const payment=found.rows[0];
+    if(Number(data.amount)!==Number(payment.amount_minor)||String(data.currency||'').toUpperCase()!==payment.currency){await client.query('ROLLBACK');return false;}
+    if(payment.status==='success'){await client.query('COMMIT');return true;}
+    if(payment.payment_type==='profile_pack'){
+      const credited=await client.query(
+        "UPDATE clipora_workspaces w SET extra_profile_packs=w.extra_profile_packs+$2,updated_at=NOW() WHERE w.owner_user_id=$1 AND EXISTS (SELECT 1 FROM clipora_subscriptions s JOIN clipora_plans p ON p.id=s.plan_id WHERE s.auth_user_id=$1 AND s.status='active' AND s.current_period_end>NOW() AND p.slug='business') RETURNING w.id",
+        [payment.auth_user_id,payment.quantity]);
+      if(!credited.rowCount){await client.query('ROLLBACK');return false;}
+    } else {
+      const plan=await client.query('SELECT slug,billing_interval FROM clipora_plans WHERE id=$1',[payment.plan_id]);
+      if(!plan.rowCount){await client.query('ROLLBACK');return false;}
+      const interval=plan.rows[0].billing_interval==='yearly'?'yearly':'monthly';
+      await client.query("UPDATE clipora_subscriptions SET status='cancelled',updated_at=NOW() WHERE auth_user_id=$1 AND status='active'",[payment.auth_user_id]);
+      await client.query(
+        "INSERT INTO clipora_subscriptions(auth_user_id,plan_id,status,billing_interval,amount_minor,current_period_start,current_period_end,paystack_customer_code) VALUES($1,$2,'active',$3,$4,NOW(),$5,$6)",
+        [payment.auth_user_id,payment.plan_id,interval,payment.amount_minor,subscriptionEnd(interval),data.customer?.customer_code||null]);
+      if(plan.rows[0].slug==='business'){
+        const slug='agency-'+crypto.createHash('sha256').update(payment.auth_user_id).digest('hex').slice(0,14);
+        const workspace=await client.query(
+          "INSERT INTO clipora_workspaces(owner_user_id,name,slug,included_profiles) VALUES($1,'My Agency',$2,10) ON CONFLICT(owner_user_id) DO UPDATE SET updated_at=NOW() RETURNING id",
+          [payment.auth_user_id,slug]);
+        await client.query("INSERT INTO clipora_workspace_members(workspace_id,auth_user_id,role) VALUES($1,$2,'owner') ON CONFLICT(workspace_id,auth_user_id) DO UPDATE SET role='owner'",[workspace.rows[0].id,payment.auth_user_id]);
+      }
+    }
+    await client.query("UPDATE clipora_payments SET status='success',channel=$1,gateway_response=$2::jsonb,paid_at=COALESCE($3,NOW()),updated_at=NOW() WHERE id=$4",
+      [data.channel||null,JSON.stringify({event:eventName,gateway_response:data.gateway_response||null,transaction_id:data.id||null}),data.paid_at?new Date(data.paid_at):null,payment.id]);
+    await client.query('COMMIT');return true;
+  } catch(error) { await client.query('ROLLBACK');console.error('Paystack fulfilment:',error.message);throw error; }
+  finally { client.release(); }
+}
+router.post('/paystack/webhook',async(req,res)=>{
+  if(!validPaystackWebhook(req))return res.status(401).json({error:'Invalid Paystack signature.'});
+  const event=req.body||{}, reference=String(event.data?.reference||'').slice(0,100);
+  const key=String(event.event||'unknown')+':'+(reference||String(event.data?.id||crypto.randomUUID()));
+  try {
+    const inserted=await database().query(
+      'INSERT INTO clipora_paystack_events(event_key,event_type,reference,payload) VALUES($1,$2,$3,$4::jsonb) ON CONFLICT(event_key) DO NOTHING RETURNING id',
+      [key,String(event.event||'unknown').slice(0,100),reference||null,JSON.stringify(event).slice(0,100000)]);
+    if(!inserted.rowCount)return res.status(200).json({received:true,duplicate:true});
+    if(event.event==='charge.success')await fulfilPaystackPayment(event.data,event.event);
+    if(event.event==='charge.failed'&&reference)await database().query("UPDATE clipora_payments SET status='failed',updated_at=NOW() WHERE reference=$1 AND status='pending'",[reference]);
+    if(event.event==='refund.processed'&&reference)await database().query("UPDATE clipora_payments SET status='refunded',updated_at=NOW() WHERE reference=$1",[reference]);
+    return res.status(200).json({received:true});
+  } catch(error) { console.error('Paystack webhook:',error.message);return res.status(500).json({error:'Could not process Paystack event.'}); }
+});
+async function createPaystackCheckout(req,res,opts) {
+  const reference='CLP-'+Date.now()+'-'+crypto.randomBytes(8).toString('hex');
+  try {
+    if(!req.userEmail)return res.status(400).json({error:'Your account needs an email address before checkout.'});
+    await database().query(
+      'INSERT INTO clipora_payments(auth_user_id,plan_id,reference,amount_minor,payment_type,quantity) VALUES($1,$2,$3,$4,$5,$6)',
+      [req.userId,opts.planId||null,reference,opts.amountMinor,opts.paymentType||'subscription',opts.quantity||1]);
+    const callback=String(process.env.CLIPORA_BILLING_CALLBACK_URL||(req.protocol+'://'+req.get('host')+'/plans'));
+    const checkout=await paystackRequest('/transaction/initialize',{method:'POST',body:{
+      email:req.userEmail,amount:String(opts.amountMinor),currency:'NGN',reference,callback_url:callback,
+      metadata:{user_id:req.userId,plan_id:opts.planId||null,payment_type:opts.paymentType||'subscription',quantity:opts.quantity||1}
+    }});
+    return res.status(201).json({authorization_url:checkout.authorization_url,reference});
+  } catch(error) {
+    await database().query("UPDATE clipora_payments SET status='failed',updated_at=NOW() WHERE reference=$1 AND status='pending'",[reference]).catch(()=>{});
+    console.error('Paystack checkout:',error.message);
+    return res.status(503).json({error:error.message.includes('not configured')?error.message:'Could not start Paystack checkout.'});
+  }
+}
+router.post('/billing/checkout',requireUser,async(req,res)=>{
+  const slug=String(req.body?.plan_slug||'').trim().toLowerCase();
+  if(!['pro','business'].includes(slug))return res.status(400).json({error:'Choose Pro or Business.'});
+  try {
+    const result=await database().query("SELECT id,price_minor,billing_interval FROM clipora_plans WHERE slug=$1 AND is_active=TRUE",[slug]);
+    if(!result.rowCount)return res.status(404).json({error:'This plan is not available yet.'});
+    const plan=result.rows[0];
+    if(Number(plan.price_minor)<100)return res.status(409).json({error:'This plan has not been priced yet.'});
+    if(!['monthly','yearly'].includes(plan.billing_interval))return res.status(409).json({error:'Unsupported billing interval.'});
+    return createPaystackCheckout(req,res,{planId:plan.id,amountMinor:Number(plan.price_minor)});
+  } catch(error) { console.error('Billing checkout:',error.message);return res.status(503).json({error:'Could not prepare checkout.'}); }
+});
+router.get('/billing/verify/:reference',requireUser,async(req,res)=>{
+  const reference=String(req.params.reference||'').slice(0,100);
+  try {
+    const payment=await database().query('SELECT reference,status,amount_minor FROM clipora_payments WHERE reference=$1 AND auth_user_id=$2',[reference,req.userId]);
+    if(!payment.rowCount)return res.status(404).json({error:'Payment not found.'});
+    if(payment.rows[0].status!=='success'){
+      const verified=await paystackRequest('/transaction/verify/'+encodeURIComponent(reference));
+      if(verified.status!=='success'||Number(verified.amount)!==Number(payment.rows[0].amount_minor)||String(verified.currency).toUpperCase()!=='NGN')return res.status(409).json({error:'Paystack has not confirmed this payment yet.'});
+      if(!await fulfilPaystackPayment(verified,'transaction.verify'))return res.status(409).json({error:'Payment could not be matched to this order.'});
+    }
+    return res.json({ok:true,status:'success'});
+  } catch(error) { console.error('Payment verification:',error.message);return res.status(503).json({error:'Could not verify payment yet. Try again shortly.'}); }
+});
+router.get('/billing/me',requireUser,async(req,res)=>{
+  try {
+    const [sub,payments,workspace]=await Promise.all([
+      database().query("SELECT s.id,s.status,s.billing_interval,s.amount_minor,s.current_period_start,s.current_period_end,s.cancel_at_period_end,p.slug AS plan_slug,p.name AS plan_name,p.entitlements FROM clipora_subscriptions s JOIN clipora_plans p ON p.id=s.plan_id WHERE s.auth_user_id=$1 ORDER BY s.created_at DESC LIMIT 1",[req.userId]),
+      database().query('SELECT reference,amount_minor,currency,status,payment_type,created_at,paid_at FROM clipora_payments WHERE auth_user_id=$1 ORDER BY created_at DESC LIMIT 20',[req.userId]),
+      database().query("(SELECT w.id,w.name,w.slug,w.included_profiles,w.extra_profile_packs,(SELECT COUNT(*)::int FROM clipora_workspace_clients c WHERE c.workspace_id=w.id) AS used_profiles FROM clipora_workspaces w WHERE w.owner_user_id=$1)",[req.userId])
+    ]);
+    return res.json({subscription:sub.rows[0]||null,payments:payments.rows,workspace:workspace.rows[0]||null});
+  } catch(error) { console.error('Billing account:',error.message);return res.status(503).json({error:'Could not load billing information.'}); }
+});
+async function activeBusinessWorkspace(userId) {
+  const result=await database().query(
+    "SELECT w.*,(SELECT COUNT(*)::int FROM clipora_workspace_clients c WHERE c.workspace_id=w.id) AS used_profiles FROM clipora_workspaces w WHERE w.owner_user_id=$1 AND EXISTS (SELECT 1 FROM clipora_subscriptions s JOIN clipora_plans p ON p.id=s.plan_id WHERE s.auth_user_id=$1 AND s.status='active' AND s.current_period_end>NOW() AND p.slug='business')",
+    [userId]);
+  return result.rows[0]||null;
+}
+router.get('/business/workspace',requireUser,async(req,res)=>{
+  try {
+    const w=await activeBusinessWorkspace(req.userId);
+    if(!w)return res.status(403).json({error:'An active Business subscription is required.'});
+    const clients=await database().query(
+      "SELECT c.id,c.client_name,c.client_email,c.status,c.created_at,p.id AS profile_id,p.username,p.display_name,p.bio,p.is_published,(SELECT COUNT(*)::int FROM linktree_links l WHERE l.profile_id=p.id AND l.is_active=TRUE) AS active_links FROM clipora_workspace_clients c JOIN linktree_profiles p ON p.id=c.profile_id WHERE c.workspace_id=$1 ORDER BY c.created_at DESC",
+      [w.id]);
+    return res.json({workspace:{...w,profile_limit:Number(w.included_profiles)+Number(w.extra_profile_packs)*5},clients:clients.rows});
+  } catch(error) { console.error('Agency workspace:',error.message);return res.status(503).json({error:'Could not load agency workspace.'}); }
+});
+router.post('/business/clients',requireUser,async(req,res)=>{
+  const name=String(req.body?.client_name||'').trim().slice(0,80),email=String(req.body?.client_email||'').trim().slice(0,254),username=cleanUsername(req.body?.username);
+  if(!name||!/^[a-z0-9_][a-z0-9_.]{1,29}$/.test(username)||(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))return res.status(400).json({error:'Enter a client name, valid username and optional email.'});
+  try {
+    const w=await activeBusinessWorkspace(req.userId);
+    if(!w)return res.status(403).json({error:'An active Business subscription is required.'});
+    const limit=Number(w.included_profiles)+Number(w.extra_profile_packs)*5;
+    if(Number(w.used_profiles)>=limit)return res.status(409).json({error:'Your profile allowance is full. Purchase another profile pack.'});
+    const client=await database().connect(),clientUuid=crypto.randomUUID(),synthetic='clipora-agency:'+w.id+':'+clientUuid;
+    try {
+      await client.query('BEGIN');
+      const profile=await client.query(
+        "INSERT INTO linktree_profiles(auth_user_id,username,display_name,bio,theme,workspace_id,managed_by_user_id) VALUES($1,$2,$3,$4,'liquid-dark',$5,$6) RETURNING id,username,display_name,bio,is_published,created_at",
+        [synthetic,username,name,String(req.body?.bio||'').trim().slice(0,280),w.id,req.userId]);
+      const created=await client.query('INSERT INTO clipora_workspace_clients(workspace_id,profile_id,client_name,client_email) VALUES($1,$2,$3,$4) RETURNING id,client_name,client_email,status,created_at',[w.id,profile.rows[0].id,name,email]);
+      await client.query('COMMIT');
+      return res.status(201).json({client:{...created.rows[0],profile:profile.rows[0]}});
+    } catch(error) {
+      await client.query('ROLLBACK');
+      if(error.code==='23505')return res.status(409).json({error:'That public username is already taken.'});
+      throw error;
+    } finally { client.release(); }
+  } catch(error) { console.error('Agency client create:',error.message);return res.status(503).json({error:'Could not create client profile.'}); }
+});
+router.post('/business/clients/:id/links',requireUser,async(req,res)=>{
+  const title=String(req.body?.title||'').trim().slice(0,80),url=String(req.body?.url||'').trim(),icon=String(req.body?.icon||'link').trim().slice(0,40);
+  if(!title||!validUrl(url))return res.status(400).json({error:'Enter a link title and valid http(s) URL.'});
+  try {
+    const w=await activeBusinessWorkspace(req.userId);
+    if(!w)return res.status(403).json({error:'An active Business subscription is required.'});
+    const profile=await database().query("SELECT p.id FROM clipora_workspace_clients c JOIN linktree_profiles p ON p.id=c.profile_id WHERE c.id=$1 AND c.workspace_id=$2 AND c.status<>'archived'",[req.params.id,w.id]);
+    if(!profile.rowCount)return res.status(404).json({error:'Client profile not found.'});
+    const result=await database().query("INSERT INTO linktree_links(profile_id,title,url,icon,sort_order) VALUES($1,$2,$3,$4,(SELECT COALESCE(MAX(sort_order),0)+1 FROM linktree_links WHERE profile_id=$1)) RETURNING id,title,url,icon,sort_order,is_active",[profile.rows[0].id,title,url,icon]);
+    return res.status(201).json({link:result.rows[0]});
+  } catch(error) { console.error('Agency client link:',error.message);return res.status(503).json({error:'Could not add client link.'}); }
+});
+router.get('/admin/billing',requireUser,requireAdmin,async(req,res)=>{
+  try {
+    const [subscriptions,payments,workspaces,stats]=await Promise.all([
+      database().query("SELECT s.id,s.auth_user_id,s.status,s.billing_interval,s.amount_minor,s.current_period_start,s.current_period_end,p.name AS plan_name,p.slug AS plan_slug FROM clipora_subscriptions s JOIN clipora_plans p ON p.id=s.plan_id ORDER BY s.created_at DESC LIMIT 100"),
+      database().query('SELECT reference,auth_user_id,amount_minor,status,payment_type,channel,created_at,paid_at FROM clipora_payments ORDER BY created_at DESC LIMIT 100'),
+      database().query('SELECT w.id,w.owner_user_id,w.name,w.slug,w.included_profiles,w.extra_profile_packs,(SELECT COUNT(*)::int FROM clipora_workspace_clients c WHERE c.workspace_id=w.id) AS used_profiles FROM clipora_workspaces w ORDER BY w.created_at DESC LIMIT 100'),
+      database().query("SELECT (SELECT COUNT(*)::int FROM clipora_subscriptions WHERE status='active' AND current_period_end>NOW()) AS active_subscriptions,(SELECT COUNT(*)::int FROM clipora_payments WHERE status='success') AS successful_payments,(SELECT COALESCE(SUM(amount_minor),0)::bigint FROM clipora_payments WHERE status='success') AS gross_volume")
+    ]);
+    return res.json({subscriptions:subscriptions.rows,payments:payments.rows,workspaces:workspaces.rows,stats:stats.rows[0]});
+  } catch(error) { console.error('Admin billing:',error.message);return res.status(503).json({error:'Could not load billing administration.'}); }
+});
+
+
 module.exports = router;
