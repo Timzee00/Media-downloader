@@ -603,6 +603,8 @@ router.post('/billing/checkout',requireUser,async(req,res)=>{
   const slug=String(req.body?.plan_slug||'').trim().toLowerCase();
   if(!['pro','business'].includes(slug))return res.status(400).json({error:'Choose Pro or Business.'});
   try {
+    const current=await database().query("SELECT p.slug,s.current_period_end FROM clipora_subscriptions s JOIN clipora_plans p ON p.id=s.plan_id WHERE s.auth_user_id=$1 AND s.status='active' AND s.current_period_end>NOW() ORDER BY s.created_at DESC LIMIT 1",[req.userId]);
+    if(current.rowCount)return res.status(409).json({error:'You already have an active '+current.rows[0].slug+' plan until '+new Date(current.rows[0].current_period_end).toLocaleDateString()+'. Plan changes are not enabled yet.'});
     const result=await database().query("SELECT id,price_minor,billing_interval,paystack_plan_code FROM clipora_plans WHERE slug=$1 AND is_active=TRUE",[slug]);
     if(!result.rowCount)return res.status(404).json({error:'This plan is not available yet.'});
     const plan=result.rows[0];
