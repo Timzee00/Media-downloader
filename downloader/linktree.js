@@ -553,13 +553,14 @@ router.post('/paystack/webhook',async(req,res)=>{
   const event=req.body||{}, reference=String(event.data?.reference||'').slice(0,100);
   const key=String(event.event||'unknown')+':'+(reference||String(event.data?.id||crypto.randomUUID()));
   try {
-    const inserted=await database().query(
-      'INSERT INTO clipora_paystack_events(event_key,event_type,reference,payload) VALUES($1,$2,$3,$4::jsonb) ON CONFLICT(event_key) DO NOTHING RETURNING id',
-      [key,String(event.event||'unknown').slice(0,100),reference||null,JSON.stringify(event).slice(0,100000)]);
-    if(!inserted.rowCount)return res.status(200).json({received:true,duplicate:true});
+    const exists=await database().query('SELECT 1 FROM clipora_paystack_events WHERE event_key=$1',[key]);
+    if(exists.rowCount)return res.status(200).json({received:true,duplicate:true});
     if(event.event==='charge.success')await fulfilPaystackPayment(event.data,event.event);
     if(event.event==='charge.failed'&&reference)await database().query("UPDATE clipora_payments SET status='failed',updated_at=NOW() WHERE reference=$1 AND status='pending'",[reference]);
     if(event.event==='refund.processed'&&reference)await database().query("UPDATE clipora_payments SET status='refunded',updated_at=NOW() WHERE reference=$1",[reference]);
+    await database().query(
+      'INSERT INTO clipora_paystack_events(event_key,event_type,reference,payload) VALUES($1,$2,$3,$4::jsonb) ON CONFLICT(event_key) DO NOTHING',
+      [key,String(event.event||'unknown').slice(0,100),reference||null,JSON.stringify(event).slice(0,100000)]);
     return res.status(200).json({received:true});
   } catch(error) { console.error('Paystack webhook:',error.message);return res.status(500).json({error:'Could not process Paystack event.'}); }
 });
@@ -669,15 +670,27 @@ router.post('/business/clients/:id/links',requireUser,async(req,res)=>{
     return res.status(201).json({link:result.rows[0]});
   } catch(error) { console.error('Agency client link:',error.message);return res.status(503).json({error:'Could not add client link.'}); }
 });
+router.patch('/admin/billing/config',requireUser,requireAdmin,async(req,res)=>{
+  const price=Number(req.body?.profile_pack_price_naira),enabled=req.body?.profile_pack_enabled;
+  if(!Number.isSafeInteger(price)||price<0||price>100000000||typeof enabled!=='boolean')return res.status(400).json({error:'Enter a valid profile-pack price and enabled state.'});
+  try {
+    const result=await database().query(
+      "INSERT INTO clipora_billing_config(config_key,config_value,updated_at) VALUES('profile_packs',jsonb_build_object('pack_size',5,'price_minor',$1,'enabled',$2),NOW()) ON CONFLICT(config_key) DO UPDATE SET config_value=EXCLUDED.config_value,updated_at=NOW() RETURNING config_value",
+      [price*100,enabled]);
+    await auditAdmin(req.userId,'billing.profile_packs.updated','billing_config','profile_packs',{price_naira:price,enabled});
+    return res.json({profile_packs:result.rows[0].config_value});
+  } catch(error) { console.error('Profile pack config:',error.message);return res.status(503).json({error:'Could not update profile-pack settings.'}); }
+});
 router.get('/admin/billing',requireUser,requireAdmin,async(req,res)=>{
   try {
-    const [subscriptions,payments,workspaces,stats]=await Promise.all([
+    const [subscriptions,payments,workspaces,stats,config]=await Promise.all([
       database().query("SELECT s.id,s.auth_user_id,s.status,s.billing_interval,s.amount_minor,s.current_period_start,s.current_period_end,p.name AS plan_name,p.slug AS plan_slug FROM clipora_subscriptions s JOIN clipora_plans p ON p.id=s.plan_id ORDER BY s.created_at DESC LIMIT 100"),
       database().query('SELECT reference,auth_user_id,amount_minor,status,payment_type,channel,created_at,paid_at FROM clipora_payments ORDER BY created_at DESC LIMIT 100'),
       database().query('SELECT w.id,w.owner_user_id,w.name,w.slug,w.included_profiles,w.extra_profile_packs,(SELECT COUNT(*)::int FROM clipora_workspace_clients c WHERE c.workspace_id=w.id) AS used_profiles FROM clipora_workspaces w ORDER BY w.created_at DESC LIMIT 100'),
-      database().query("SELECT (SELECT COUNT(*)::int FROM clipora_subscriptions WHERE status='active' AND current_period_end>NOW()) AS active_subscriptions,(SELECT COUNT(*)::int FROM clipora_payments WHERE status='success') AS successful_payments,(SELECT COALESCE(SUM(amount_minor),0)::bigint FROM clipora_payments WHERE status='success') AS gross_volume")
+      database().query("SELECT (SELECT COUNT(*)::int FROM clipora_subscriptions WHERE status='active' AND current_period_end>NOW()) AS active_subscriptions,(SELECT COUNT(*)::int FROM clipora_payments WHERE status='success') AS successful_payments,(SELECT COALESCE(SUM(amount_minor),0)::bigint FROM clipora_payments WHERE status='success') AS gross_volume"),
+      database().query("SELECT config_value FROM clipora_billing_config WHERE config_key='profile_packs'")
     ]);
-    return res.json({subscriptions:subscriptions.rows,payments:payments.rows,workspaces:workspaces.rows,stats:stats.rows[0]});
+    return res.json({subscriptions:subscriptions.rows,payments:payments.rows,workspaces:workspaces.rows,stats:stats.rows[0],profile_packs:config.rows[0]?.config_value||{pack_size:5,price_minor:0,enabled:false}});
   } catch(error) { console.error('Admin billing:',error.message);return res.status(503).json({error:'Could not load billing administration.'}); }
 });
 
