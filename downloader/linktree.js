@@ -38,7 +38,7 @@ router.get('/public/:username', async (req, res) => {
   try {
     const username = cleanUsername(req.params.username);
     const result = await database().query(
-      `SELECT p.username,p.display_name,p.bio,CASE WHEN p.avatar_data IS NOT NULL THEN '/api/linktree/avatar/'||p.username ELSE p.avatar_url END AS avatar_url,CASE WHEN p.cover_data IS NOT NULL THEN '/api/linktree/cover/'||p.username ELSE p.cover_url END AS cover_url,p.theme,p.appearance,
+      `SELECT p.username,p.display_name,p.bio,CASE WHEN p.avatar_data IS NOT NULL THEN '/api/linktree/avatar/'||p.username||'?v='||extract(epoch FROM p.updated_at)::bigint ELSE p.avatar_url END AS avatar_url,CASE WHEN p.cover_data IS NOT NULL THEN '/api/linktree/cover/'||p.username||'?v='||extract(epoch FROM p.updated_at)::bigint ELSE p.cover_url END AS cover_url,p.theme,p.appearance,
         COALESCE(json_agg(json_build_object('id',l.id,'title',l.title,'url',l.url,'icon',l.icon,'sort_order',l.sort_order,'category',l.category,'description',l.description,'is_pinned',l.is_pinned,'section_id',l.section_id) ORDER BY l.sort_order,l.id)
         FILTER (WHERE l.id IS NOT NULL AND l.is_active), '[]'::json) AS links
        FROM linktree_profiles p LEFT JOIN linktree_links l ON l.profile_id=p.id
@@ -53,7 +53,7 @@ router.get('/public/:username', async (req, res) => {
 router.get('/me', requireUser, async (req, res) => {
   try {
     const result = await database().query(
-      `SELECT p.id,p.username,p.display_name,p.bio,CASE WHEN p.avatar_data IS NOT NULL THEN '/api/linktree/avatar/'||p.username ELSE p.avatar_url END AS avatar_url,CASE WHEN p.cover_data IS NOT NULL THEN '/api/linktree/cover/'||p.username ELSE p.cover_url END AS cover_url,p.theme,p.appearance,p.is_published,
+      `SELECT p.id,p.username,p.display_name,p.bio,CASE WHEN p.avatar_data IS NOT NULL THEN '/api/linktree/avatar/'||p.username||'?v='||extract(epoch FROM p.updated_at)::bigint ELSE p.avatar_url END AS avatar_url,CASE WHEN p.cover_data IS NOT NULL THEN '/api/linktree/cover/'||p.username||'?v='||extract(epoch FROM p.updated_at)::bigint ELSE p.cover_url END AS cover_url,p.theme,p.appearance,p.is_published,
        COALESCE(json_agg(json_build_object('id',l.id,'title',l.title,'url',l.url,'icon',l.icon,'sort_order',l.sort_order,'is_active',l.is_active,'category',l.category,'description',l.description,'is_pinned',l.is_pinned,'section_id',l.section_id,'schedule_start',l.schedule_start,'schedule_end',l.schedule_end) ORDER BY l.sort_order,l.id)
        FILTER (WHERE l.id IS NOT NULL), '[]'::json) AS links
        FROM linktree_profiles p LEFT JOIN linktree_links l ON l.profile_id=p.id
@@ -130,6 +130,8 @@ router.put('/profile', requireUser, async (req, res) => {
   const cover = String(req.body?.cover_url || '').trim().slice(0, 1000) || null;
   const theme = ['liquid-dark','liquid-light'].includes(req.body?.theme) ? req.body.theme : 'liquid-dark';
   const appearance = req.body?.appearance && typeof req.body.appearance === 'object' && !Array.isArray(req.body.appearance) ? req.body.appearance : {};
+  if (appearance.fontData !== undefined && (typeof appearance.fontData !== 'string' || appearance.fontData.length > 700000 || !/^data:font\/(?:woff2?|ttf|otf);base64,[A-Za-z0-9+/=]+$/i.test(appearance.fontData))) return res.status(400).json({ error: 'Custom font data must be a supported font file no larger than 500 KB.' });
+  if (appearance.qrLogo !== undefined && (typeof appearance.qrLogo !== 'string' || appearance.qrLogo.length > 250000 || !/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/i.test(appearance.qrLogo))) return res.status(400).json({ error: 'QR logo must be a PNG, JPG or WebP image no larger than 180 KB.' });
   if (!/^[a-z0-9_][a-z0-9_.]{1,29}$/.test(username)) return res.status(400).json({ error: 'Username must be 2–30 characters and use letters, numbers, dots or underscores.' });
   if (!displayName) return res.status(400).json({ error: 'Display name is required.' });
   if (avatar && !validUrl(avatar)) return res.status(400).json({ error: 'Profile picture must be a valid http(s) URL.' });
@@ -140,7 +142,10 @@ router.put('/profile', requireUser, async (req, res) => {
        VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb)
        ON CONFLICT(auth_user_id) DO UPDATE SET username=EXCLUDED.username,display_name=EXCLUDED.display_name,bio=EXCLUDED.bio,
        avatar_url=COALESCE(EXCLUDED.avatar_url,linktree_profiles.avatar_url),cover_url=COALESCE(EXCLUDED.cover_url,linktree_profiles.cover_url),theme=EXCLUDED.theme,appearance=EXCLUDED.appearance,updated_at=NOW()
-       RETURNING id,username,display_name,bio,avatar_url,cover_url,theme,appearance,is_published`,
+       RETURNING id,username,display_name,bio,
+        CASE WHEN avatar_data IS NOT NULL THEN '/api/linktree/avatar/'||username||'?v='||extract(epoch FROM updated_at)::bigint ELSE avatar_url END AS avatar_url,
+        CASE WHEN cover_data IS NOT NULL THEN '/api/linktree/cover/'||username||'?v='||extract(epoch FROM updated_at)::bigint ELSE cover_url END AS cover_url,
+        theme,appearance,is_published`,
       [req.userId,username,displayName,bio,avatar,cover,theme,JSON.stringify(appearance)]);
     res.json({ profile: result.rows[0] });
   } catch (error) {
