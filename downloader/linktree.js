@@ -546,6 +546,7 @@ async function fulfilPaystackPayment(data,eventName='charge.success') {
       const plan=await client.query('SELECT slug,billing_interval FROM clipora_plans WHERE id=$1',[payment.plan_id]);
       if(!plan.rowCount){await client.query('ROLLBACK');return false;}
       const interval=plan.rows[0].billing_interval==='yearly'?'yearly':'monthly';
+      await client.query("UPDATE clipora_subscriptions SET status='expired',updated_at=NOW() WHERE auth_user_id=$1 AND status='active' AND current_period_end<=NOW()",[payment.auth_user_id]);
       await client.query("UPDATE clipora_subscriptions SET status='cancelled',updated_at=NOW() WHERE auth_user_id=$1 AND status='active'",[payment.auth_user_id]);
       await client.query(
         "INSERT INTO clipora_subscriptions(auth_user_id,plan_id,status,billing_interval,amount_minor,current_period_start,current_period_end,paystack_customer_code,paystack_subscription_code,paystack_email_token) VALUES($1,$2,'active',$3,$4,NOW(),$5,$6,$7,$8)",
