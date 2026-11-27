@@ -56,6 +56,13 @@ body{font-family:var(--profile-font,Inter,-apple-system,BlinkMacSystemFont,"Sego
 @media(prefers-reduced-motion:reduce){.clipora-nav a,.clipora-about{transition:none}}
 /* Analytics dashboard: responsive metrics and smooth SVG trend lines */
 .analytics-stat{padding:18px 20px;min-width:0}.analytics-stat strong{display:block;font-size:clamp(25px,4vw,34px);letter-spacing:-.045em;font-weight:800}.analytics-stat .notice{margin:4px 0 0}.analytics-chart{padding:clamp(14px,3vw,22px);background:linear-gradient(145deg,rgba(255,255,255,.12),rgba(8,19,37,.45));}.analytics-chart-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:10px}.analytics-chart-head strong{display:block;font-size:14px}.analytics-chart-head small{display:block;color:var(--muted);font-size:11px;margin-top:4px}.analytics-legend{display:flex;gap:14px;flex-wrap:wrap;color:var(--muted);font-size:11px}.analytics-legend span{display:inline-flex;align-items:center;gap:6px}.analytics-legend i{width:8px;height:8px;border-radius:50%;display:inline-block}.views-dot{background:#67e8f9}.clicks-dot{background:#c4b5fd}.analytics-svg{display:block;width:100%;height:auto;overflow:visible}.analytics-svg path{transition:opacity .25s ease}@media(max-width:520px){.analytics-chart-head{display:grid}.analytics-legend{gap:12px}.analytics-stat{padding:15px}}
+
+.managed-mode-banner{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:0 0 16px;padding:16px 18px;border:1px solid rgba(103,232,249,.3);background:linear-gradient(120deg,rgba(103,232,249,.09),rgba(139,92,246,.08))}
+.managed-mode-banner .managed-copy{min-width:0;display:grid;gap:5px}
+.managed-mode-banner strong{font-size:14px;overflow-wrap:anywhere}
+.managed-mode-banner p{margin:0;color:var(--muted);font-size:12px;line-height:1.55}
+.managed-mode-banner button{flex:0 0 auto}
+@media(max-width:560px){.managed-mode-banner{align-items:stretch;flex-direction:column}.managed-mode-banner button{width:100%}}
 </style>
 </head>
 <body>
@@ -67,6 +74,7 @@ body{font-family:var(--profile-font,Inter,-apple-system,BlinkMacSystemFont,"Sego
 <form id="authForm"><div class="field" id="nameField"><label for="authName">Your name</label><input id="authName" autocomplete="name" required maxlength="80"></div><div class="field"><label for="authEmail">Email address</label><input id="authEmail" type="email" autocomplete="email" required></div><div class="field"><label for="authPassword">Password</label><input id="authPassword" type="password" autocomplete="new-password" minlength="8" required></div><button class="primary" id="authSubmit">Create my account</button></form><div class="notice" id="authNotice" aria-live="polite"></div>
 </section>
 <section id="dashboard" class="hidden">
+<div id="managedModeBanner" class="glass panel managed-mode-banner hidden" role="status"><div class="managed-copy"><div class="eyebrow">Managed client workspace</div><strong id="managedClientName">Client profile</strong><p>You are editing this client's actual Clipora profile using your agency permissions. Photos, links, appearance, QR settings and changes are saved to their profile.</p></div><button class="ghost" id="backToBusiness" type="button">Back to Business workspace</button></div>
 <div class="intro"><div><div class="eyebrow">Link Tree studio</div><h1>Your page, your identity.</h1><p>Build your profile, arrange your links and share one memorable URL.</p></div><button class="ghost" id="signOut">Sign out</button></div>
 <div class="tabs"><button class="tab active" data-tab="profile">Profile</button><button class="tab" data-tab="links">Links</button><button class="tab" data-tab="appearance">Appearance</button><button class="tab" data-tab="qr">QR code</button><button class="tab" data-tab="analytics">Analytics</button><button class="tab" data-tab="preview">Preview</button></div>
 <section class="glass panel" id="profileTab"><form id="profileForm"><div class="grid"><div class="field"><label for="displayName">Display name</label><input id="displayName" maxlength="80" required></div><div class="field"><label for="username">Username</label><input id="username" maxlength="30" placeholder="yourname" required></div></div><div class="field"><label for="bioInput">Short bio</label><textarea id="bioInput" maxlength="280" placeholder="Tell people a little about yourself..."></textarea></div><div class="grid"><div class="field"><label for="avatarFile">Profile photo</label><input id="avatarFile" type="file" accept="image/jpeg,image/png,image/webp" aria-describedby="avatarHelp"><small id="avatarHelp" class="notice">Choose JPG, PNG or WebP · maximum 2 MB.</small><img id="avatarUploadPreview" class="avatar hidden" alt="Selected profile photo preview" style="margin:8px 0 0;width:76px;height:76px"></div><div class="field"><label for="coverFile">Cover photo</label><input id="coverFile" type="file" accept="image/jpeg,image/png,image/webp" aria-describedby="coverHelp"><small id="coverHelp" class="notice">Choose JPG, PNG or WebP · maximum 5 MB.</small><div id="coverUploadPreview" class="cover hidden" style="width:100%;max-width:260px;height:72px;margin-top:8px"></div></div></div><div class="field"><label for="themeInput">Base theme</label><select id="themeInput"><option value="liquid-dark">Liquid dark</option><option value="liquid-light">Liquid light</option></select></div><button class="primary">Save profile</button></form><div class="notice" id="profileNotice" aria-live="polite"></div><div class="share-row"><div class="notice" id="shareUrl" aria-live="polite"></div><button class="ghost" id="copyPublicLink" type="button">Copy public link</button></div></section>
@@ -85,12 +93,28 @@ const AUTH_URL = 'https://ep-green-field-bjni81tw.neonauth.c-3.eu-west-2.aws.neo
 const neonAuth = createInternalNeonAuth(AUTH_URL);
 const auth = neonAuth.adapter;
 const $ = id => document.getElementById(id);
+const managedParam=new URLSearchParams(location.search).get('manage')||'';
+const managedClientId=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(managedParam)?managedParam:'';
+const managedModeRequested=Boolean(managedParam);
 let mode='signup',token='',profile=null,links=[],sections=[],shortLinks=[],appearance={},avatarFile=null,coverFile=null,avatarPreviewUrl='',coverPreviewUrl='';
 function notice(id,msg,type=''){const el=$(id);el.textContent=msg;el.className='notice '+type;}
-async function api(path,options={}){const response=await fetch('/api/linktree'+path,{...options,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{}),...(options.headers||{})}});const data=await response.json().catch(()=>({error:'Unexpected server response.'}));if(!response.ok)throw new Error(data.error||'Request failed.');return data;}
+async function api(path,options={}){const response=await fetch('/api/linktree'+path,{...options,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{}),...(managedClientId?{'X-Clipora-Managed-Client':managedClientId}:{}),...(options.headers||{})}});const data=await response.json().catch(()=>({error:'Unexpected server response.'}));if(!response.ok)throw new Error(data.error||'Request failed.');return data;}
 async function refreshToken(){const value=await neonAuth.getJWTToken();token=value||'';return token;}
-function showAuth(){ $('authPanel').classList.remove('hidden');$('dashboard').classList.add('hidden');$('publicPanel').classList.add('hidden');}
-function showDashboard(){ $('authPanel').classList.add('hidden');$('dashboard').classList.remove('hidden');$('publicPanel').classList.add('hidden');}
+function showAuth(){
+ $('authPanel').classList.remove('hidden');$('dashboard').classList.add('hidden');$('publicPanel').classList.add('hidden');
+ if(managedModeRequested){
+  $('showSignup').classList.add('hidden');$('showLogin').classList.add('hidden');$('nameField').classList.add('hidden');$('authName').required=false;
+  $('authPassword').autocomplete='current-password';$('authSubmit').textContent='Sign in to manage client';
+  const heading=$('authPanel').querySelector('h1'),description=$('authPanel').querySelector('p');
+  if(heading)heading.textContent='Sign in to manage this client';
+  if(description)description.textContent='Use the Business workspace owner account. Client passwords are never required.';
+ }
+}
+function showDashboard(){
+ $('authPanel').classList.add('hidden');$('dashboard').classList.remove('hidden');$('publicPanel').classList.add('hidden');
+ $('managedModeBanner').classList.toggle('hidden',!managedClientId);
+ if(managedClientId)$('managedClientName').textContent=(profile?.display_name||'Client profile')+' · @'+(profile?.username||'');
+}
 function setAuthMode(next){mode=next;$('showSignup').classList.toggle('active',mode==='signup');$('showLogin').classList.toggle('active',mode==='login');$('nameField').classList.toggle('hidden',mode==='login');$('authName').required=mode==='signup';$('authPassword').autocomplete=mode==='signup'?'new-password':'current-password';$('authSubmit').textContent=mode==='signup'?'Create my account':'Sign in';notice('authNotice','');}
 $('showSignup').onclick=()=>setAuthMode('signup');$('showLogin').onclick=()=>setAuthMode('login');
 $('authForm').onsubmit=async e=>{e.preventDefault();const button=$('authSubmit');button.disabled=true;try{const email=$('authEmail').value.trim(),password=$('authPassword').value;const result=mode==='signup'?await auth.signUp.email({name:$('authName').value.trim(),email,password}):await auth.signIn.email({email,password});if(result?.error){const authError=result.error;throw new Error([authError.message||'Authentication failed.',authError.status?'HTTP '+authError.status:'',authError.code?'['+authError.code+']':''].filter(Boolean).join(' · '));}await refreshToken();await loadOwner();}catch(error){notice('authNotice',error.message,'error');}finally{button.disabled=false;}};
@@ -98,15 +122,16 @@ async function loadOwner(){await refreshToken();if(!token){showAuth();return;}tr
 function publicPageUrl(){return new URL('/u/'+encodeURIComponent(profile.username),window.location.origin).href;}
 function fillForms(){if(!profile)return;$('appearancePreset').value=appearance.preset||'aurora';$('buttonStyle').value=appearance.buttonStyle||'rounded';$('accentColor').value=appearance.accent||'#67e8f9';$('pageBackground').value=appearance.background||'#081322';$('fontFamily').value=appearance.fontFamily||(appearance.fontData?'custom':'system');$('customFontName').textContent=appearance.fontFileName||(appearance.fontData?'Custom font saved to your profile.':'No custom font uploaded.');$('removeCustomFont').classList.toggle('hidden',!appearance.fontData);$('qrModuleStyle').value=appearance.qrModuleStyle||'square';$('qrEyeStyle').value=appearance.qrEyeStyle||'square';$('qrDark').value=appearance.qrDark||'#081322';$('qrLight').value=appearance.qrLight||'#ffffff';qrLogoData=appearance.qrLogo||localStorage.getItem('clipora_qr_logo')||'';if(qrLogoData){$('qrLogoPreview').src=qrLogoData;$('qrLogoPreview').classList.remove('hidden');$('clearQrLogo').classList.remove('hidden');}else{$('qrLogoPreview').removeAttribute('src');$('qrLogoPreview').classList.add('hidden');$('clearQrLogo').classList.add('hidden');}$('displayName').value=profile.display_name||'';$('username').value=profile.username||'';$('bioInput').value=profile.bio||'';$('themeInput').value=profile.theme||'liquid-dark';$('shareUrl').textContent=publicPageUrl();}
 $('copyPublicLink').addEventListener('click',()=>copyText(publicPageUrl(),$('copyPublicLink')));
+$('backToBusiness').addEventListener('click',()=>location.assign('/business'));
 async function uploadLinkLogo(id,file){
  if(!file)return null;
  if(!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>512*1024)throw new Error('Choose a PNG, JPG or WebP logo smaller than 512 KB.');
- const response=await fetch('/api/linktree/links/'+encodeURIComponent(id)+'/logo',{method:'PUT',headers:{Authorization:'Bearer '+token,'Content-Type':file.type},body:file});
+ const response=await fetch('/api/linktree/links/'+encodeURIComponent(id)+'/logo',{method:'PUT',headers:{Authorization:'Bearer '+token,'Content-Type':file.type,...(managedClientId?{'X-Clipora-Managed-Client':managedClientId}:{})},body:file});
  const data=await response.json().catch(()=>({error:'Logo upload failed.'}));
  if(!response.ok)throw new Error(data.error||'Logo upload failed.');
  return data.logo_url;
 }
-async function uploadImage(path,file,label){const upload=await fetch('/api/linktree/profile/'+path,{method:'PUT',headers:{Authorization:'Bearer '+token,'Content-Type':file.type},body:file});const data=await upload.json().catch(()=>({error:label+' upload failed.'}));if(!upload.ok)throw new Error(data.error||label+' upload failed.');return data;}
+async function uploadImage(path,file,label){const upload=await fetch('/api/linktree/profile/'+path,{method:'PUT',headers:{Authorization:'Bearer '+token,'Content-Type':file.type,...(managedClientId?{'X-Clipora-Managed-Client':managedClientId}:{})},body:file});const data=await upload.json().catch(()=>({error:label+' upload failed.'}));if(!upload.ok)throw new Error(data.error||label+' upload failed.');return data;}
 $('profileForm').onsubmit=async e=>{e.preventDefault();const button=$('profileForm').querySelector('button[type="submit"],button:not([type])');button.disabled=true;try{const data=await api('/profile',{method:'PUT',body:JSON.stringify({display_name:$('displayName').value,username:$('username').value,bio:$('bioInput').value,theme:$('themeInput').value,appearance})});profile={...profile,...data.profile,links};if(avatarFile){const uploaded=await uploadImage('avatar',avatarFile,'Profile photo');profile.avatar_url=uploaded.avatar_url;avatarFile=null;}if(coverFile){const uploaded=await uploadImage('cover',coverFile,'Cover photo');profile.cover_url=uploaded.cover_url;coverFile=null;}fillForms();renderPreview();notice('profileNotice','Profile saved and published.','success');}catch(error){notice('profileNotice',error.message,'error');}finally{button.disabled=false;}};
 $('linkType').addEventListener('change',()=>{const whatsapp=$('linkType').value==='whatsapp';$('whatsappFields').classList.toggle('hidden',!whatsapp);$('linkUrlField').classList.toggle('hidden',whatsapp);$('linkUrl').required=!whatsapp;$('whatsappNumber').required=whatsapp;});
 function buildWhatsAppUrl(number,message){const digits=String(number||'').replace(/\D/g,'');if(!/^\d{8,15}$/.test(digits))throw new Error('Enter a valid WhatsApp number with country code.');return 'https://wa.me/'+digits+(String(message||'').trim()?'?text='+encodeURIComponent(String(message).trim()):'');}
@@ -180,6 +205,7 @@ async function loadAnalytics(){try{const days=Number($('analyticsRange').value)|
 $('refreshAnalytics').onclick=loadAnalytics;$('analyticsRange').onchange=loadAnalytics;
 
 const match=location.pathname.match(/^\/u\/([^/]+)/);
-if(match)loadPublic(decodeURIComponent(match[1]));else loadOwner().catch(error=>{showAuth();notice('authNotice','Session check failed: '+(error.message||'Authentication service unavailable.'),'error');});
+if(managedModeRequested&&!managedClientId){showAuth();notice('authNotice','This client management link is invalid. Return to the Business workspace and open the client again.','error');}
+else if(match)loadPublic(decodeURIComponent(match[1]));else loadOwner().catch(error=>{showAuth();notice('authNotice',error.message||'Session check failed. Please sign in again.','error');});
 </script>
 </body></html>
