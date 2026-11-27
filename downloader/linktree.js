@@ -54,7 +54,7 @@ router.get('/me', requireUser, async (req, res) => {
   try {
     const result = await database().query(
       `SELECT p.id,p.username,p.display_name,p.bio,CASE WHEN p.avatar_data IS NOT NULL THEN '/api/linktree/avatar/'||p.username||'?v='||extract(epoch FROM p.updated_at)::bigint ELSE p.avatar_url END AS avatar_url,CASE WHEN p.cover_data IS NOT NULL THEN '/api/linktree/cover/'||p.username||'?v='||extract(epoch FROM p.updated_at)::bigint ELSE p.cover_url END AS cover_url,p.theme,p.appearance,p.is_published,
-       COALESCE(json_agg(json_build_object('id',l.id,'title',l.title,'url',l.url,'icon',l.icon,'sort_order',l.sort_order,'is_active',l.is_active,'category',l.category,'description',l.description,'is_pinned',l.is_pinned,'section_id',l.section_id,'schedule_start',l.schedule_start,'schedule_end',l.schedule_end) ORDER BY l.sort_order,l.id)
+       COALESCE(json_agg(json_build_object('id',l.id,'title',l.title,'url',l.url,'icon',l.icon,'logo_url',CASE WHEN l.logo_data IS NOT NULL THEN '/api/linktree/logo/'||l.id||'?v='||extract(epoch FROM l.updated_at)::bigint ELSE NULL END,'sort_order',l.sort_order,'is_active',l.is_active,'category',l.category,'description',l.description,'is_pinned',l.is_pinned,'section_id',l.section_id,'schedule_start',l.schedule_start,'schedule_end',l.schedule_end) ORDER BY l.sort_order,l.id)
        FILTER (WHERE l.id IS NOT NULL), '[]'::json) AS links
        FROM linktree_profiles p LEFT JOIN linktree_links l ON l.profile_id=p.id
        WHERE p.auth_user_id=$1 GROUP BY p.id LIMIT 1`, [req.userId]);
