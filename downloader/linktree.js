@@ -33,13 +33,21 @@ async function requireUser(req, res, next) {
 }
 function cleanUsername(value) { return String(value || '').trim().replace(/^@/, '').toLowerCase(); }
 function validUrl(value) { try { const u = new URL(value); return ['http:', 'https:'].includes(u.protocol); } catch { return false; } }
+let linkLogoSchemaAvailable;
+async function hasLinkLogoStorage() {
+  if (linkLogoSchemaAvailable !== undefined) return linkLogoSchemaAvailable;
+  const result = await database().query("SELECT COUNT(*)::int AS n FROM information_schema.columns WHERE table_schema='public' AND table_name='linktree_links' AND column_name IN ('logo_data','logo_mime')");
+  linkLogoSchemaAvailable = Number(result.rows[0]?.n) === 2;
+  return linkLogoSchemaAvailable;
+}
 
 router.get('/public/:username', async (req, res) => {
   try {
     const username = cleanUsername(req.params.username);
+    const logoExpression = await hasLinkLogoStorage() ? "CASE WHEN l.logo_data IS NOT NULL THEN '/api/linktree/logo/'||l.id||'?v='||extract(epoch FROM l.updated_at)::bigint ELSE NULL END" : 'NULL';
     const result = await database().query(
       `SELECT p.username,p.display_name,p.bio,CASE WHEN p.avatar_data IS NOT NULL THEN '/api/linktree/avatar/'||p.username||'?v='||extract(epoch FROM p.updated_at)::bigint ELSE p.avatar_url END AS avatar_url,CASE WHEN p.cover_data IS NOT NULL THEN '/api/linktree/cover/'||p.username||'?v='||extract(epoch FROM p.updated_at)::bigint ELSE p.cover_url END AS cover_url,p.theme,p.appearance,
-        COALESCE(json_agg(json_build_object('id',l.id,'title',l.title,'url',l.url,'icon',l.icon,'logo_url',CASE WHEN l.logo_data IS NOT NULL THEN '/api/linktree/logo/'||l.id||'?v='||extract(epoch FROM l.updated_at)::bigint ELSE NULL END,'sort_order',l.sort_order,'category',l.category,'description',l.description,'is_pinned',l.is_pinned,'section_id',l.section_id) ORDER BY l.sort_order,l.id)
+        COALESCE(json_agg(json_build_object('id',l.id,'title',l.title,'url',l.url,'icon',l.icon,'logo_url',${logoExpression},'sort_order',l.sort_order,'category',l.category,'description',l.description,'is_pinned',l.is_pinned,'section_id',l.section_id) ORDER BY l.sort_order,l.id)
         FILTER (WHERE l.id IS NOT NULL AND l.is_active), '[]'::json) AS links
        FROM linktree_profiles p LEFT JOIN linktree_links l ON l.profile_id=p.id
        WHERE p.username=$1 AND p.is_published=TRUE
@@ -52,6 +60,7 @@ router.get('/public/:username', async (req, res) => {
 
 router.get('/me', requireUser, async (req, res) => {
   try {
+    const logoExpression = await hasLinkLogoStorage() ? "CASE WHEN l.logo_data IS NOT NULL THEN '/api/linktree/logo/'||l.id||'?v='||extract(epoch FROM l.updated_at)::bigint ELSE NULL END" : 'NULL';
     const result = await database().query(
       `SELECT p.id,p.username,p.display_name,p.bio,CASE WHEN p.avatar_data IS NOT NULL THEN '/api/linktree/avatar/'||p.username||'?v='||extract(epoch FROM p.updated_at)::bigint ELSE p.avatar_url END AS avatar_url,CASE WHEN p.cover_data IS NOT NULL THEN '/api/linktree/cover/'||p.username||'?v='||extract(epoch FROM p.updated_at)::bigint ELSE p.cover_url END AS cover_url,p.theme,p.appearance,p.is_published,
        COALESCE(json_agg(json_build_object('id',l.id,'title',l.title,'url',l.url,'icon',l.icon,'logo_url',CASE WHEN l.logo_data IS NOT NULL THEN '/api/linktree/logo/'||l.id||'?v='||extract(epoch FROM l.updated_at)::bigint ELSE NULL END,'sort_order',l.sort_order,'is_active',l.is_active,'category',l.category,'description',l.description,'is_pinned',l.is_pinned,'section_id',l.section_id,'schedule_start',l.schedule_start,'schedule_end',l.schedule_end) ORDER BY l.sort_order,l.id)
@@ -131,6 +140,7 @@ router.put('/links/:id/logo', requireUser, express.raw({ type: ['image/jpeg','im
     :mime==='image/webp'?bytes.toString('ascii',0,4)==='RIFF'&&bytes.toString('ascii',8,12)==='WEBP':false;
   if(!valid)return res.status(415).json({error:'Use a valid PNG, JPG or WebP logo.'});
   try{
+    if(!await hasLinkLogoStorage())return res.status(503).json({error:'Custom logo storage is awaiting its database migration.'});
     const result=await database().query(`UPDATE linktree_links l SET logo_data=$1,logo_mime=$2,updated_at=NOW()
       FROM linktree_profiles p WHERE l.profile_id=p.id AND p.auth_user_id=$3 AND l.id=$4
       RETURNING l.id,extract(epoch FROM l.updated_at)::bigint AS version`,[bytes,mime,req.userId,id]);
@@ -142,6 +152,7 @@ router.delete('/links/:id/logo', requireUser, async(req,res)=>{
   const id=Number(req.params.id);
   if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'Invalid link.'});
   try{
+    if(!await hasLinkLogoStorage())return res.status(503).json({error:'Custom logo storage is awaiting its database migration.'});
     const result=await database().query(`UPDATE linktree_links l SET logo_data=NULL,logo_mime=NULL,updated_at=NOW()
       FROM linktree_profiles p WHERE l.profile_id=p.id AND p.auth_user_id=$1 AND l.id=$2 RETURNING l.id`,[req.userId,id]);
     if(!result.rowCount)return res.status(404).json({error:'Link not found.'});
@@ -152,6 +163,7 @@ router.get('/logo/:id',async(req,res)=>{
   const id=Number(req.params.id);
   if(!Number.isSafeInteger(id)||id<1)return res.status(404).end();
   try{
+    if(!await hasLinkLogoStorage())return res.status(404).end();
     const result=await database().query(`SELECT l.logo_data,l.logo_mime FROM linktree_links l
       JOIN linktree_profiles p ON p.id=l.profile_id
       WHERE l.id=$1 AND l.is_active=TRUE AND p.is_published=TRUE AND l.logo_data IS NOT NULL`,[id]);
