@@ -15,6 +15,23 @@ app.use(cors());
 app.use(express.json({ limit: '1mb', verify: (req, res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
 app.use(cookieParser());
 app.use('/api/linktree', linktreeRouter);
+
+// Privacy-conscious public page analytics. Admin pages, APIs, assets and download
+// endpoints are intentionally excluded; route names are normalised before storage.
+const trackedPublicPages = new Set(['/','/about','/linktree','/plans','/business']);
+app.use((req,res,next) => {
+  if (req.method !== 'GET' || !req.accepts('html')) return next();
+  let analyticsPath = trackedPublicPages.has(req.path) ? req.path : null;
+  if (!analyticsPath && /^\/u\/[a-zA-Z0-9_.]{2,30}$/.test(req.path)) analyticsPath = '/u/:username';
+  if (!analyticsPath) return next();
+  res.once('finish', () => {
+    if (res.statusCode >= 400 || res.statusCode === 304) return;
+    linktreeRouter.recordSitePageView(req, analyticsPath).catch(error => {
+      console.warn('Clipora site analytics write failed:', error.message);
+    });
+  });
+  next();
+});
 app.use(express.static(path.join(__dirname, 'public')));
 // Public informational page (does not expose private download data).
 app.get('/about', (req, res) => res.sendFile(path.join(__dirname, 'public', 'about.html')));
