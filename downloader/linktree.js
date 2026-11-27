@@ -777,7 +777,7 @@ async function activeBusinessWorkspace(userId) {
   if(adminId && String(userId)===adminId) {
     const slug='agency-'+crypto.createHash('sha256').update(String(userId)).digest('hex').slice(0,14);
     await database().query(
-      "INSERT INTO clipora_workspaces(owner_user_id,name,slug,included_profiles) VALUES($1,'Timzee Corp Studio',$2,1000) ON CONFLICT(owner_user_id) DO UPDATE SET included_profiles=GREATEST(clipora_workspaces.included_profiles,1000),updated_at=NOW()",
+      "INSERT INTO clipora_workspaces(owner_user_id,name,slug,included_profiles) VALUES($1,'Timzee Corp Studio',$2,1000) ON CONFLICT(owner_user_id) DO UPDATE SET name=CASE WHEN clipora_workspaces.name='My Agency' THEN 'Timzee Corp Studio' ELSE clipora_workspaces.name END,included_profiles=GREATEST(clipora_workspaces.included_profiles,1000),updated_at=NOW()",
       [userId,slug]);
     const workspace=await database().query("SELECT id FROM clipora_workspaces WHERE owner_user_id=$1",[userId]);
     if(workspace.rowCount)await database().query(
