@@ -798,7 +798,7 @@ router.get('/business/workspace',requireUser,async(req,res)=>{
     const w=await activeBusinessWorkspace(req.userId);
     if(!w)return res.status(403).json({error:'An active Business subscription is required.'});
     const clients=await database().query(
-      "SELECT c.id,c.client_name,c.client_email,c.status,c.created_at,p.id AS profile_id,p.username,p.display_name,p.bio,p.is_published,(SELECT COUNT(*)::int FROM linktree_links l WHERE l.profile_id=p.id AND l.is_active=TRUE) AS active_links FROM clipora_workspace_clients c JOIN linktree_profiles p ON p.id=c.profile_id WHERE c.workspace_id=$1 ORDER BY c.created_at DESC",
+      "SELECT c.id,c.client_name,c.client_email,c.status,c.created_at,p.id AS profile_id,p.username,p.display_name,p.bio,p.is_published,(SELECT COUNT(*)::int FROM linktree_links l WHERE l.profile_id=p.id AND l.is_active=TRUE) AS active_links,CASE WHEN p.avatar_data IS NOT NULL THEN '/api/linktree/avatar/'||p.username||'?v='||extract(epoch FROM p.updated_at)::bigint ELSE p.avatar_url END AS avatar_url,CASE WHEN p.cover_data IS NOT NULL THEN '/api/linktree/cover/'||p.username||'?v='||extract(epoch FROM p.updated_at)::bigint ELSE p.cover_url END AS cover_url FROM clipora_workspace_clients c JOIN linktree_profiles p ON p.id=c.profile_id WHERE c.workspace_id=$1 ORDER BY c.created_at DESC",
       [w.id]);
     return res.json({workspace:{...w,profile_limit:Number(w.included_profiles)+Number(w.extra_profile_packs)*5},clients:clients.rows});
   } catch(error) { console.error('Agency workspace:',error.message);return res.status(503).json({error:'Could not load agency workspace.'}); }
