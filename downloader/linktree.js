@@ -442,10 +442,20 @@ router.get('/admin/overview', requireUser, requireAdmin, async (req, res) => {
   try {
     const [counts, requests, plans, audit] = await Promise.all([
       database().query(`SELECT
+        (SELECT COUNT(*)::int FROM neon_auth."user") AS total_users,
+        (SELECT COUNT(*)::int FROM neon_auth."user" WHERE "createdAt">=NOW()-INTERVAL '30 days') AS new_users_30d,
+        (SELECT COUNT(*)::int FROM linktree_profiles) AS creators,
+        (SELECT COUNT(*)::int FROM linktree_profiles WHERE is_published=TRUE) AS published_profiles,
+        (SELECT COUNT(*)::int FROM linktree_profiles WHERE is_published=FALSE) AS unpublished_profiles,
+        (SELECT COUNT(*)::int FROM linktree_links) AS total_links,
+        (SELECT COUNT(*)::int FROM linktree_links WHERE is_active=TRUE) AS active_links,
+        (SELECT COUNT(*)::int FROM linktree_analytics_events WHERE event_type='page_view' AND created_at>=NOW()-INTERVAL '30 days') AS page_views_30d,
+        (SELECT COUNT(DISTINCT visitor_hash)::int FROM linktree_analytics_events WHERE event_type='page_view' AND visitor_hash IS NOT NULL AND created_at>=NOW()-INTERVAL '30 days') AS unique_visitors_30d,
+        (SELECT COUNT(*)::int FROM linktree_analytics_events WHERE event_type='link_click' AND created_at>=NOW()-INTERVAL '30 days') AS link_clicks_30d,
+        (SELECT COUNT(*)::int FROM clipora_subscriptions WHERE status='active' AND current_period_end>NOW()) AS active_subscriptions,
         (SELECT COUNT(*)::int FROM clipora_plan_requests) AS total_requests,
         (SELECT COUNT(*)::int FROM clipora_plan_requests WHERE status='pending') AS pending_requests,
-        (SELECT COUNT(*)::int FROM clipora_plans WHERE is_active=TRUE) AS active_plans,
-        (SELECT COUNT(DISTINCT auth_user_id)::int FROM linktree_profiles) AS creators`),
+        (SELECT COUNT(*)::int FROM clipora_plans WHERE is_active=TRUE) AS active_plans`),
       database().query(`SELECT r.id,r.auth_user_id,r.customer_name,r.customer_email,r.message,r.status,r.admin_notes,r.created_at,r.plan_snapshot,
         p.username FROM clipora_plan_requests r LEFT JOIN linktree_profiles p ON p.id=r.profile_id
         ORDER BY CASE WHEN r.status='pending' THEN 0 ELSE 1 END,r.created_at DESC LIMIT 100`),
@@ -803,5 +813,90 @@ router.get('/admin/billing',requireUser,requireAdmin,async(req,res)=>{
   } catch(error) { console.error('Admin billing:',error.message);return res.status(503).json({error:'Could not load billing administration.'}); }
 });
 
+
+
+
+// ---------- Owner analytics and account access management ----------
+router.get('/admin/analytics', requireUser, requireAdmin, async (req,res) => {
+  const requested=Number(req.query.days), days=[7,30,90].includes(requested)?requested:30;
+  try {
+    const [totals,series,topProfiles,referrers,devices,topLinks]=await Promise.all([
+      database().query("SELECT COUNT(*) FILTER (WHERE event_type='page_view')::int AS page_views, COUNT(DISTINCT visitor_hash) FILTER (WHERE event_type='page_view' AND visitor_hash IS NOT NULL)::int AS unique_visitors, COUNT(*) FILTER (WHERE event_type='link_click')::int AS link_clicks, (SELECT COUNT(*)::int FROM neon_auth.\"user\" WHERE \"createdAt\">=NOW()-($1::int*INTERVAL '1 day')) AS new_users FROM linktree_analytics_events WHERE created_at>=NOW()-($1::int*INTERVAL '1 day')",[days]),
+      database().query("WITH calendar AS (SELECT generate_series(CURRENT_DATE-($1::int-1),CURRENT_DATE,INTERVAL '1 day')::date AS day), signups AS (SELECT \"createdAt\"::date AS day,COUNT(*)::int AS new_users FROM neon_auth.\"user\" WHERE \"createdAt\">=CURRENT_DATE-($1::int-1) GROUP BY \"createdAt\"::date) SELECT c.day,COUNT(e.id) FILTER (WHERE e.event_type='page_view')::int AS page_views,COUNT(DISTINCT e.visitor_hash) FILTER (WHERE e.event_type='page_view' AND e.visitor_hash IS NOT NULL)::int AS unique_visitors,COUNT(e.id) FILTER (WHERE e.event_type='link_click')::int AS link_clicks,COALESCE(s.new_users,0)::int AS new_users FROM calendar c LEFT JOIN linktree_analytics_events e ON e.created_at>=c.day::timestamptz AND e.created_at<(c.day+1)::timestamptz LEFT JOIN signups s ON s.day=c.day GROUP BY c.day,s.new_users ORDER BY c.day",[days]),
+      database().query("SELECT p.username,p.display_name,COUNT(e.id) FILTER (WHERE e.event_type='page_view')::int AS page_views,COUNT(DISTINCT e.visitor_hash) FILTER (WHERE e.event_type='page_view' AND e.visitor_hash IS NOT NULL)::int AS unique_visitors,COUNT(e.id) FILTER (WHERE e.event_type='link_click')::int AS link_clicks FROM linktree_profiles p JOIN linktree_analytics_events e ON e.profile_id=p.id WHERE e.created_at>=NOW()-($1::int*INTERVAL '1 day') GROUP BY p.id ORDER BY page_views DESC,link_clicks DESC LIMIT 10",[days]),
+      database().query("SELECT COALESCE(NULLIF(referrer_host,''),'Direct / no referrer') AS source,COUNT(*)::int AS visits FROM linktree_analytics_events WHERE event_type='page_view' AND created_at>=NOW()-($1::int*INTERVAL '1 day') GROUP BY COALESCE(NULLIF(referrer_host,''),'Direct / no referrer') ORDER BY visits DESC LIMIT 10",[days]),
+      database().query("SELECT COALESCE(NULLIF(device_type,''),'unknown') AS device,COUNT(*)::int AS visits FROM linktree_analytics_events WHERE event_type='page_view' AND created_at>=NOW()-($1::int*INTERVAL '1 day') GROUP BY COALESCE(NULLIF(device_type,''),'unknown') ORDER BY visits DESC",[days]),
+      database().query("SELECT p.username,l.title,COUNT(*)::int AS clicks FROM linktree_analytics_events e JOIN linktree_links l ON l.id=e.link_id JOIN linktree_profiles p ON p.id=e.profile_id WHERE e.event_type='link_click' AND e.created_at>=NOW()-($1::int*INTERVAL '1 day') GROUP BY p.username,l.id ORDER BY clicks DESC LIMIT 10",[days])
+    ]);
+    return res.json({days,totals:totals.rows[0],series:series.rows,top_profiles:topProfiles.rows,referrers:referrers.rows,devices:devices.rows,top_links:topLinks.rows});
+  } catch(error) {
+    console.error('Admin analytics:',error.message);
+    return res.status(503).json({error:'Could not load site analytics.'});
+  }
+});
+
+router.get('/admin/users', requireUser, requireAdmin, async (req,res) => {
+  const q=String(req.query.q||'').trim().slice(0,100),limit=Math.max(1,Math.min(100,Number(req.query.limit)||50)),offset=Math.max(0,Math.min(100000,Number(req.query.offset)||0));
+  try {
+    const [count,users]=await Promise.all([
+      database().query("SELECT COUNT(*)::int AS total FROM neon_auth.\"user\" u LEFT JOIN linktree_profiles p ON p.auth_user_id=u.id::text WHERE $1='' OR u.name ILIKE '%'||$1||'%' OR u.email ILIKE '%'||$1||'%' OR u.id::text ILIKE '%'||$1||'%' OR p.username ILIKE '%'||$1||'%'",[q]),
+      database().query("SELECT u.id::text AS id,u.name,u.email,u.\"emailVerified\" AS email_verified,u.\"createdAt\" AS created_at,COALESCE(u.banned,FALSE) AS banned,p.username,sub.plan_id,sub.plan_name,sub.plan_slug,sub.subscription_status,sub.current_period_end,COALESCE(sub.subscription_status='active' AND sub.current_period_end>NOW(),FALSE) AS has_active_plan FROM neon_auth.\"user\" u LEFT JOIN linktree_profiles p ON p.auth_user_id=u.id::text LEFT JOIN LATERAL (SELECT s.plan_id,pl.name AS plan_name,pl.slug AS plan_slug,s.status AS subscription_status,s.current_period_end FROM clipora_subscriptions s JOIN clipora_plans pl ON pl.id=s.plan_id WHERE s.auth_user_id=u.id::text ORDER BY CASE WHEN s.status='active' AND s.current_period_end>NOW() THEN 0 ELSE 1 END,s.created_at DESC LIMIT 1) sub ON TRUE WHERE $1='' OR u.name ILIKE '%'||$1||'%' OR u.email ILIKE '%'||$1||'%' OR u.id::text ILIKE '%'||$1||'%' OR p.username ILIKE '%'||$1||'%' ORDER BY u.\"createdAt\" DESC LIMIT $2 OFFSET $3",[q,limit,offset])
+    ]);
+    return res.json({users:users.rows,total:count.rows[0]?.total||0,limit,offset,query:q});
+  } catch(error) {
+    console.error('Admin user directory:',error.message);
+    return res.status(503).json({error:'Could not load registered accounts.'});
+  }
+});
+
+router.post('/admin/users/:id/plan', requireUser, requireAdmin, async (req,res) => {
+  const userId=String(req.params.id||'').trim(),planId=Number(req.body?.plan_id),days=Number(req.body?.duration_days),note=String(req.body?.note||'').trim().slice(0,500);
+  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userId)||!Number.isSafeInteger(planId)||planId<1||!Number.isSafeInteger(days)||days<1||days>3650)
+    return res.status(400).json({error:'Choose a valid user, plan and duration between 1 and 3,650 days.'});
+  const client=await database().connect();
+  try {
+    await client.query('BEGIN');
+    const user=await client.query('SELECT id,name,email FROM neon_auth."user" WHERE id=$1::uuid FOR UPDATE',[userId]);
+    if(!user.rowCount){await client.query('ROLLBACK');return res.status(404).json({error:'Registered account not found.'});}
+    const plan=await client.query('SELECT id,slug,name,billing_interval,is_active FROM clipora_plans WHERE id=$1 FOR SHARE',[planId]);
+    if(!plan.rowCount){await client.query('ROLLBACK');return res.status(404).json({error:'Plan not found. Create the plan before assigning it.'});}
+    await client.query("UPDATE clipora_subscriptions SET status='cancelled',current_period_end=NOW(),cancel_at_period_end=FALSE,updated_at=NOW() WHERE auth_user_id=$1 AND status='active'",[userId]);
+    const interval=plan.rows[0].billing_interval==='yearly'?'yearly':'monthly';
+    const subscription=await client.query("INSERT INTO clipora_subscriptions(auth_user_id,plan_id,status,billing_interval,amount_minor,currency,current_period_start,current_period_end) VALUES($1,$2,'active',$3,0,'NGN',NOW(),NOW()+($4::int*INTERVAL '1 day')) RETURNING id,status,current_period_start,current_period_end",[userId,planId,interval,days]);
+    if(plan.rows[0].slug==='business') {
+      const slug='agency-'+crypto.createHash('sha256').update(userId).digest('hex').slice(0,14);
+      const workspace=await client.query("INSERT INTO clipora_workspaces(owner_user_id,name,slug,included_profiles) VALUES($1,'My Agency',$2,10) ON CONFLICT(owner_user_id) DO UPDATE SET updated_at=NOW() RETURNING id",[userId,slug]);
+      await client.query("INSERT INTO clipora_workspace_members(workspace_id,auth_user_id,role) VALUES($1,$2,'owner') ON CONFLICT(workspace_id,auth_user_id) DO UPDATE SET role='owner'",[workspace.rows[0].id,userId]);
+    }
+    await client.query("INSERT INTO clipora_admin_audit(admin_user_id,action,entity_type,entity_id,details) VALUES($1,'user.plan_granted','subscription',$2,$3::jsonb)",[req.userId,subscription.rows[0].id,JSON.stringify({user_id:userId,user_email:user.rows[0].email,plan_id:planId,plan_slug:plan.rows[0].slug,plan_name:plan.rows[0].name,duration_days:days,note,grant_type:'manual_admin',replaced_existing_access:true})]);
+    await client.query('COMMIT');
+    return res.status(201).json({subscription:subscription.rows[0],user:{id:userId,email:user.rows[0].email},plan:plan.rows[0],duration_days:days});
+  } catch(error) {
+    await client.query('ROLLBACK').catch(()=>{});
+    console.error('Manual plan grant:',error.message);
+    if(error.code==='23505')return res.status(409).json({error:'An active plan already exists for this account. Refresh the account list and try again.'});
+    return res.status(503).json({error:'Could not assign this plan. No access changes were saved.'});
+  } finally {client.release();}
+});
+
+router.delete('/admin/users/:id/plan', requireUser, requireAdmin, async (req,res) => {
+  const userId=String(req.params.id||'').trim(),note=String(req.body?.note||'').trim().slice(0,500);
+  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userId))
+    return res.status(400).json({error:'Invalid registered account ID.'});
+  const client=await database().connect();
+  try {
+    await client.query('BEGIN');
+    const active=await client.query("SELECT id,plan_id FROM clipora_subscriptions WHERE auth_user_id=$1 AND status='active' AND current_period_end>NOW() FOR UPDATE",[userId]);
+    if(!active.rowCount){await client.query('ROLLBACK');return res.status(404).json({error:'This account has no active plan to revoke.'});}
+    await client.query("UPDATE clipora_subscriptions SET status='cancelled',current_period_end=NOW(),cancel_at_period_end=FALSE,updated_at=NOW() WHERE id=$1",[active.rows[0].id]);
+    await client.query("INSERT INTO clipora_admin_audit(admin_user_id,action,entity_type,entity_id,details) VALUES($1,'user.plan_revoked','subscription',$2,$3::jsonb)",[req.userId,active.rows[0].id,JSON.stringify({user_id:userId,plan_id:active.rows[0].plan_id,note,revoked_at:new Date().toISOString()})]);
+    await client.query('COMMIT');
+    return res.json({ok:true,subscription_id:active.rows[0].id});
+  } catch(error) {
+    await client.query('ROLLBACK').catch(()=>{});
+    console.error('Manual plan revoke:',error.message);
+    return res.status(503).json({error:'Could not revoke this plan. No access changes were saved.'});
+  } finally {client.release();}
+});
 
 module.exports = router;
