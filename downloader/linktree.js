@@ -31,6 +31,40 @@ async function requireUser(req, res, next) {
     return res.status(401).json({ error: 'Your session has expired. Please sign in again.' });
   }
 }
+async function resolveManagedClientContext(req,res,next) {
+  const requested=String(req.get('x-clipora-managed-client')||'').trim();
+  if(!requested)return next();
+  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requested))
+    return res.status(400).json({error:'Invalid managed client reference.'});
+  const actorId=String(req.userId||'');
+  const adminId=String(process.env.CLIPORA_ADMIN_USER_ID||'').trim();
+  try {
+    let result;
+    if(adminId && actorId===adminId) {
+      result=await database().query(
+        "SELECT c.id AS client_id,c.client_name,w.id AS workspace_id,w.owner_user_id,p.id AS profile_id,p.auth_user_id AS profile_auth_user_id,p.username FROM clipora_workspace_clients c JOIN clipora_workspaces w ON w.id=c.workspace_id JOIN linktree_profiles p ON p.id=c.profile_id WHERE c.id=$1 AND c.status<>'archived' LIMIT 1",
+        [requested]);
+    } else {
+      const workspace=await activeBusinessWorkspace(actorId);
+      if(!workspace)return res.status(403).json({error:'An active Business workspace is required to manage client profiles.'});
+      result=await database().query(
+        "SELECT c.id AS client_id,c.client_name,w.id AS workspace_id,w.owner_user_id,p.id AS profile_id,p.auth_user_id AS profile_auth_user_id,p.username FROM clipora_workspace_clients c JOIN clipora_workspaces w ON w.id=c.workspace_id JOIN linktree_profiles p ON p.id=c.profile_id WHERE c.id=$1 AND c.workspace_id=$2 AND c.status<>'archived' LIMIT 1",
+        [requested,workspace.id]);
+    }
+    if(!result.rowCount)return res.status(404).json({error:'This client profile is not available in your managed workspace.'});
+    req.businessActorUserId=actorId;
+    req.managedBusinessClient=result.rows[0];
+    req.userId=String(result.rows[0].profile_auth_user_id);
+    return next();
+  } catch(error) {
+    console.error('Managed client context:',error.message);
+    return res.status(503).json({error:'Could not authorise this managed client profile.'});
+  }
+}
+function requireProfileEditor(req,res,next) {
+  return requireUser(req,res,()=>resolveManagedClientContext(req,res,next));
+}
+
 function cleanUsername(value) { return String(value || '').trim().replace(/^@/, '').toLowerCase(); }
 function validUrl(value) { try { const u = new URL(value); return ['http:', 'https:'].includes(u.protocol); } catch { return false; } }
 let linkLogoSchemaAvailable;
@@ -58,7 +92,7 @@ router.get('/public/:username', async (req, res) => {
   } catch (error) { console.error('Link Tree public profile:', error.message); res.status(503).json({ error: 'Link Tree is temporarily unavailable.' }); }
 });
 
-router.get('/me', requireUser, async (req, res) => {
+router.get('/me', requireProfileEditor, async (req, res) => {
   try {
     const logoExpression = await hasLinkLogoStorage() ? "CASE WHEN l.logo_data IS NOT NULL THEN '/api/linktree/logo/'||l.id||'?v='||extract(epoch FROM l.updated_at)::bigint ELSE NULL END" : 'NULL';
     const result = await database().query(
@@ -74,7 +108,7 @@ router.get('/me', requireUser, async (req, res) => {
 });
 
 
-router.put('/profile/avatar', requireUser, express.raw({ type: ['image/jpeg','image/png','image/webp'], limit: '2mb' }), async (req, res) => {
+router.put('/profile/avatar', requireProfileEditor, express.raw({ type: ['image/jpeg','image/png','image/webp'], limit: '2mb' }), async (req, res) => {
   const mime = req.get('content-type') || '';
   const bytes = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
   if (!bytes.length || bytes.length > 2 * 1024 * 1024) return res.status(400).json({ error: 'Choose an image smaller than 2 MB.' });
@@ -103,7 +137,7 @@ router.get('/avatar/:username', async (req, res) => {
 });
 
 
-router.put('/profile/cover', requireUser, express.raw({ type: ['image/jpeg','image/png','image/webp'], limit: '5mb' }), async (req, res) => {
+router.put('/profile/cover', requireProfileEditor, express.raw({ type: ['image/jpeg','image/png','image/webp'], limit: '5mb' }), async (req, res) => {
   const mime = req.get('content-type') || '';
   const bytes = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
   if (!bytes.length || bytes.length > 5 * 1024 * 1024) return res.status(400).json({ error: 'Choose a cover image smaller than 5 MB.' });
@@ -131,7 +165,7 @@ router.get('/cover/:username', async (req, res) => {
   } catch (error) { console.error('Link Tree cover fetch:', error.message); res.status(503).end(); }
 });
 
-router.put('/links/:id/logo', requireUser, express.raw({ type: ['image/jpeg','image/png','image/webp'], limit: '512kb' }), async (req,res) => {
+router.put('/links/:id/logo', requireProfileEditor, express.raw({ type: ['image/jpeg','image/png','image/webp'], limit: '512kb' }), async (req,res) => {
   const id=Number(req.params.id), mime=String(req.get('content-type')||'');
   const bytes=Buffer.isBuffer(req.body)?req.body:Buffer.alloc(0);
   if(!Number.isSafeInteger(id)||id<1||!bytes.length||bytes.length>512*1024)return res.status(400).json({error:'Choose a logo smaller than 512 KB.'});
@@ -148,7 +182,7 @@ router.put('/links/:id/logo', requireUser, express.raw({ type: ['image/jpeg','im
     return res.json({logo_url:'/api/linktree/logo/'+id+'?v='+result.rows[0].version});
   }catch(error){console.error('Link logo upload:',error.message);return res.status(503).json({error:'Could not save this logo.'});}
 });
-router.delete('/links/:id/logo', requireUser, async(req,res)=>{
+router.delete('/links/:id/logo', requireProfileEditor, async(req,res)=>{
   const id=Number(req.params.id);
   if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'Invalid link.'});
   try{
@@ -173,7 +207,7 @@ router.get('/logo/:id',async(req,res)=>{
   }catch(error){console.error('Link logo fetch:',error.message);return res.status(503).end();}
 });
 
-router.put('/profile', requireUser, async (req, res) => {
+router.put('/profile', requireProfileEditor, async (req, res) => {
   const username = cleanUsername(req.body?.username);
   const displayName = String(req.body?.display_name || '').trim().slice(0, 80);
   const bio = String(req.body?.bio || '').trim().slice(0, 280);
@@ -205,7 +239,7 @@ router.put('/profile', requireUser, async (req, res) => {
   }
 });
 
-router.post('/links', requireUser, async (req, res) => {
+router.post('/links', requireProfileEditor, async (req, res) => {
   const title = String(req.body?.title || '').trim().slice(0,80);
   const url = String(req.body?.url || '').trim();
   const icon = String(req.body?.icon || 'link').trim().slice(0,40);
@@ -223,7 +257,7 @@ router.post('/links', requireUser, async (req, res) => {
   } catch (error) { console.error('Link Tree add link:', error.message); res.status(503).json({ error: 'Could not add this link.' }); }
 });
 
-router.patch('/links/:id', requireUser, async (req, res) => {
+router.patch('/links/:id', requireProfileEditor, async (req, res) => {
   const id = Number(req.params.id);
   const title = String(req.body?.title || '').trim().slice(0,80);
   const url = String(req.body?.url || '').trim();
@@ -245,7 +279,7 @@ router.patch('/links/:id', requireUser, async (req, res) => {
   } catch (error) { console.error('Link Tree update link:', error.message); res.status(503).json({ error: 'Could not update this link.' }); }
 });
 
-router.delete('/links/:id', requireUser, async (req, res) => {
+router.delete('/links/:id', requireProfileEditor, async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ error: 'Invalid link.' });
   try {
@@ -258,7 +292,7 @@ router.delete('/links/:id', requireUser, async (req, res) => {
 });
 
 
-router.post('/sections', requireUser, async (req, res) => {
+router.post('/sections', requireProfileEditor, async (req, res) => {
   const title = String(req.body?.title || '').trim().slice(0,60);
   if (!title) return res.status(400).json({ error: 'Give this section a name.' });
   try {
@@ -271,7 +305,7 @@ router.post('/sections', requireUser, async (req, res) => {
   } catch (error) { console.error('Link Tree section:',error.message); res.status(503).json({ error: 'Could not create this section.' }); }
 });
 
-router.patch('/sections/:id', requireUser, async (req,res) => {
+router.patch('/sections/:id', requireProfileEditor, async (req,res) => {
   const id=Number(req.params.id), title=String(req.body?.title||'').trim().slice(0,60);
   if (!Number.isSafeInteger(id)||id<1||!title) return res.status(400).json({error:'Enter a valid section name.'});
   try {
@@ -282,7 +316,7 @@ router.patch('/sections/:id', requireUser, async (req,res) => {
   } catch(error){res.status(503).json({error:'Could not update this section.'});}
 });
 
-router.delete('/sections/:id', requireUser, async (req,res) => {
+router.delete('/sections/:id', requireProfileEditor, async (req,res) => {
   const id=Number(req.params.id);
   if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'Invalid section.'});
   try {
@@ -293,7 +327,7 @@ router.delete('/sections/:id', requireUser, async (req,res) => {
   } catch(error){res.status(503).json({error:'Could not delete this section.'});}
 });
 
-router.put('/links/reorder', requireUser, async (req,res) => {
+router.put('/links/reorder', requireProfileEditor, async (req,res) => {
   const ids=req.body?.ids;
   if(!Array.isArray(ids)||ids.some(id=>!Number.isSafeInteger(Number(id))||Number(id)<1)||new Set(ids.map(Number)).size!==ids.length)
     return res.status(400).json({error:'Send a valid ordered list of link IDs.'});
@@ -310,7 +344,7 @@ router.put('/links/reorder', requireUser, async (req,res) => {
   finally{client.release();}
 });
 
-router.post('/short-links', requireUser, async (req,res) => {
+router.post('/short-links', requireProfileEditor, async (req,res) => {
   const destination=String(req.body?.destination_url||'').trim(), linkId=req.body?.link_id?Number(req.body.link_id):null;
   if(!validUrl(destination))return res.status(400).json({error:'Enter a valid http(s) destination.'});
   const slug=crypto.randomBytes(5).toString('base64url').toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,8);
@@ -354,7 +388,7 @@ router.post('/events', async (req,res) => {
   }catch(error){console.error('Analytics event:',error.message);res.status(503).json({error:'Analytics is temporarily unavailable.'});}
 });
 
-router.get('/analytics', requireUser, async (req,res) => {
+router.get('/analytics', requireProfileEditor, async (req,res) => {
   const days=Math.max(1,Math.min(90,Number(req.query.days)||30));
   try{
     const result=await database().query(`SELECT event_type,COUNT(*)::int AS events,
@@ -739,6 +773,21 @@ router.post('/billing/profile-packs/checkout',requireUser,async(req,res)=>{
   } catch(error) { console.error('Profile pack checkout:',error.message);return res.status(503).json({error:'Could not prepare profile-pack checkout.'}); }
 });
 async function activeBusinessWorkspace(userId) {
+  const adminId=String(process.env.CLIPORA_ADMIN_USER_ID||'').trim();
+  if(adminId && String(userId)===adminId) {
+    const slug='agency-'+crypto.createHash('sha256').update(String(userId)).digest('hex').slice(0,14);
+    await database().query(
+      "INSERT INTO clipora_workspaces(owner_user_id,name,slug,included_profiles) VALUES($1,'Timzee Corp Studio',$2,1000) ON CONFLICT(owner_user_id) DO UPDATE SET included_profiles=GREATEST(clipora_workspaces.included_profiles,1000),updated_at=NOW()",
+      [userId,slug]);
+    const workspace=await database().query("SELECT id FROM clipora_workspaces WHERE owner_user_id=$1",[userId]);
+    if(workspace.rowCount)await database().query(
+      "INSERT INTO clipora_workspace_members(workspace_id,auth_user_id,role) VALUES($1,$2,'owner') ON CONFLICT(workspace_id,auth_user_id) DO UPDATE SET role='owner'",
+      [workspace.rows[0].id,userId]);
+    const result=await database().query(
+      "SELECT w.*,(SELECT COUNT(*)::int FROM clipora_workspace_clients c WHERE c.workspace_id=w.id) AS used_profiles FROM clipora_workspaces w WHERE w.owner_user_id=$1 LIMIT 1",
+      [userId]);
+    return result.rows[0]||null;
+  }
   const result=await database().query(
     "SELECT w.*,(SELECT COUNT(*)::int FROM clipora_workspace_clients c WHERE c.workspace_id=w.id) AS used_profiles FROM clipora_workspaces w WHERE w.owner_user_id=$1 AND EXISTS (SELECT 1 FROM clipora_subscriptions s JOIN clipora_plans p ON p.id=s.plan_id WHERE s.auth_user_id=$1 AND s.status='active' AND s.current_period_end>NOW() AND p.slug='business')",
     [userId]);
