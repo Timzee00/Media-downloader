@@ -39,7 +39,7 @@ router.get('/public/:username', async (req, res) => {
     const username = cleanUsername(req.params.username);
     const result = await database().query(
       `SELECT p.username,p.display_name,p.bio,CASE WHEN p.avatar_data IS NOT NULL THEN '/api/linktree/avatar/'||p.username||'?v='||extract(epoch FROM p.updated_at)::bigint ELSE p.avatar_url END AS avatar_url,CASE WHEN p.cover_data IS NOT NULL THEN '/api/linktree/cover/'||p.username||'?v='||extract(epoch FROM p.updated_at)::bigint ELSE p.cover_url END AS cover_url,p.theme,p.appearance,
-        COALESCE(json_agg(json_build_object('id',l.id,'title',l.title,'url',l.url,'icon',l.icon,'sort_order',l.sort_order,'category',l.category,'description',l.description,'is_pinned',l.is_pinned,'section_id',l.section_id) ORDER BY l.sort_order,l.id)
+        COALESCE(json_agg(json_build_object('id',l.id,'title',l.title,'url',l.url,'icon',l.icon,'logo_url',CASE WHEN l.logo_data IS NOT NULL THEN '/api/linktree/logo/'||l.id||'?v='||extract(epoch FROM l.updated_at)::bigint ELSE NULL END,'sort_order',l.sort_order,'category',l.category,'description',l.description,'is_pinned',l.is_pinned,'section_id',l.section_id) ORDER BY l.sort_order,l.id)
         FILTER (WHERE l.id IS NOT NULL AND l.is_active), '[]'::json) AS links
        FROM linktree_profiles p LEFT JOIN linktree_links l ON l.profile_id=p.id
        WHERE p.username=$1 AND p.is_published=TRUE
@@ -120,6 +120,45 @@ router.get('/cover/:username', async (req, res) => {
     res.set({ 'Content-Type': result.rows[0].cover_mime, 'Cache-Control': 'public, max-age=3600', 'X-Content-Type-Options': 'nosniff' });
     res.send(result.rows[0].cover_data);
   } catch (error) { console.error('Link Tree cover fetch:', error.message); res.status(503).end(); }
+});
+
+router.put('/links/:id/logo', requireUser, express.raw({ type: ['image/jpeg','image/png','image/webp'], limit: '512kb' }), async (req,res) => {
+  const id=Number(req.params.id), mime=String(req.get('content-type')||'');
+  const bytes=Buffer.isBuffer(req.body)?req.body:Buffer.alloc(0);
+  if(!Number.isSafeInteger(id)||id<1||!bytes.length||bytes.length>512*1024)return res.status(400).json({error:'Choose a logo smaller than 512 KB.'});
+  const valid=mime==='image/jpeg'?bytes.length>3&&bytes[0]===0xff&&bytes[1]===0xd8&&bytes[2]===0xff
+    :mime==='image/png'?bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))
+    :mime==='image/webp'?bytes.toString('ascii',0,4)==='RIFF'&&bytes.toString('ascii',8,12)==='WEBP':false;
+  if(!valid)return res.status(415).json({error:'Use a valid PNG, JPG or WebP logo.'});
+  try{
+    const result=await database().query(`UPDATE linktree_links l SET logo_data=$1,logo_mime=$2,updated_at=NOW()
+      FROM linktree_profiles p WHERE l.profile_id=p.id AND p.auth_user_id=$3 AND l.id=$4
+      RETURNING l.id,extract(epoch FROM l.updated_at)::bigint AS version`,[bytes,mime,req.userId,id]);
+    if(!result.rowCount)return res.status(404).json({error:'Link not found.'});
+    return res.json({logo_url:'/api/linktree/logo/'+id+'?v='+result.rows[0].version});
+  }catch(error){console.error('Link logo upload:',error.message);return res.status(503).json({error:'Could not save this logo.'});}
+});
+router.delete('/links/:id/logo', requireUser, async(req,res)=>{
+  const id=Number(req.params.id);
+  if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'Invalid link.'});
+  try{
+    const result=await database().query(`UPDATE linktree_links l SET logo_data=NULL,logo_mime=NULL,updated_at=NOW()
+      FROM linktree_profiles p WHERE l.profile_id=p.id AND p.auth_user_id=$1 AND l.id=$2 RETURNING l.id`,[req.userId,id]);
+    if(!result.rowCount)return res.status(404).json({error:'Link not found.'});
+    return res.json({ok:true});
+  }catch(error){console.error('Link logo removal:',error.message);return res.status(503).json({error:'Could not remove this logo.'});}
+});
+router.get('/logo/:id',async(req,res)=>{
+  const id=Number(req.params.id);
+  if(!Number.isSafeInteger(id)||id<1)return res.status(404).end();
+  try{
+    const result=await database().query(`SELECT l.logo_data,l.logo_mime FROM linktree_links l
+      JOIN linktree_profiles p ON p.id=l.profile_id
+      WHERE l.id=$1 AND l.is_active=TRUE AND p.is_published=TRUE AND l.logo_data IS NOT NULL`,[id]);
+    if(!result.rowCount)return res.status(404).end();
+    res.set({'Content-Type':result.rows[0].logo_mime,'Cache-Control':'public, max-age=3600','X-Content-Type-Options':'nosniff'});
+    return res.send(result.rows[0].logo_data);
+  }catch(error){console.error('Link logo fetch:',error.message);return res.status(503).end();}
 });
 
 router.put('/profile', requireUser, async (req, res) => {
@@ -453,6 +492,32 @@ router.patch('/admin/plans/:id', requireUser, requireAdmin, async (req, res) => 
     console.error('Clipora plan update:', error.message);
     res.status(503).json({ error: 'Could not update the plan.' });
   }
+});
+
+router.get('/admin/creators',requireUser,requireAdmin,async(req,res)=>{
+  const q=String(req.query.q||'').trim().slice(0,100);
+  try{
+    const result=await database().query(`SELECT p.id,p.username,p.display_name,p.bio,p.is_published,p.created_at,
+      (SELECT COUNT(*)::int FROM linktree_links l WHERE l.profile_id=p.id) AS total_links,
+      (SELECT COUNT(*)::int FROM linktree_links l WHERE l.profile_id=p.id AND l.is_active=TRUE) AS active_links,
+      (SELECT pl.name FROM clipora_subscriptions s JOIN clipora_plans pl ON pl.id=s.plan_id
+       WHERE s.auth_user_id=p.auth_user_id AND s.status='active' AND s.current_period_end>NOW()
+       ORDER BY s.created_at DESC LIMIT 1) AS plan_name
+      FROM linktree_profiles p
+      WHERE ($1='' OR p.username ILIKE '%'||$1||'%' OR p.display_name ILIKE '%'||$1||'%')
+      ORDER BY p.created_at DESC LIMIT 200`,[q]);
+    return res.json({creators:result.rows});
+  }catch(error){console.error('Admin creators:',error.message);return res.status(503).json({error:'Could not load creator moderation.'});}
+});
+router.patch('/admin/creators/:id',requireUser,requireAdmin,async(req,res)=>{
+  const id=Number(req.params.id),published=req.body?.is_published;
+  if(!Number.isSafeInteger(id)||id<1||typeof published!=='boolean')return res.status(400).json({error:'Choose a valid moderation action.'});
+  try{
+    const result=await database().query('UPDATE linktree_profiles SET is_published=$1,updated_at=NOW() WHERE id=$2 RETURNING id,username,is_published',[published,id]);
+    if(!result.rowCount)return res.status(404).json({error:'Creator profile not found.'});
+    await auditAdmin(req.userId,published?'creator.profile_published':'creator.profile_unpublished','profile',id,{username:result.rows[0].username});
+    return res.json({creator:result.rows[0]});
+  }catch(error){console.error('Admin creator moderation:',error.message);return res.status(503).json({error:'Could not update this creator profile.'});}
 });
 
 router.patch('/admin/requests/:id', requireUser, requireAdmin, async (req, res) => {
