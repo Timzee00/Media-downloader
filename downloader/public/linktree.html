@@ -103,7 +103,7 @@ async function refreshToken(){const value=await neonAuth.getJWTToken();token=val
 function showAuth(){
  $('authPanel').classList.remove('hidden');$('dashboard').classList.add('hidden');$('publicPanel').classList.add('hidden');
  if(managedModeRequested){
-  $('showSignup').classList.add('hidden');$('showLogin').classList.add('hidden');$('nameField').classList.add('hidden');$('authName').required=false;
+  mode='login';$('showSignup').classList.add('hidden');$('showLogin').classList.add('hidden');$('nameField').classList.add('hidden');$('authName').required=false;
   $('authPassword').autocomplete='current-password';$('authSubmit').textContent='Sign in to manage client';
   const heading=$('authPanel').querySelector('h1'),description=$('authPanel').querySelector('p');
   if(heading)heading.textContent='Sign in to manage this client';
