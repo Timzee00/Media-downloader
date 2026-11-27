@@ -449,8 +449,9 @@ router.get('/admin/overview', requireUser, requireAdmin, async (req, res) => {
         (SELECT COUNT(*)::int FROM linktree_profiles WHERE is_published=FALSE) AS unpublished_profiles,
         (SELECT COUNT(*)::int FROM linktree_links) AS total_links,
         (SELECT COUNT(*)::int FROM linktree_links WHERE is_active=TRUE) AS active_links,
-        (SELECT COUNT(*)::int FROM linktree_analytics_events WHERE event_type='page_view' AND created_at>=NOW()-INTERVAL '30 days') AS page_views_30d,
-        (SELECT COUNT(DISTINCT visitor_hash)::int FROM linktree_analytics_events WHERE event_type='page_view' AND visitor_hash IS NOT NULL AND created_at>=NOW()-INTERVAL '30 days') AS unique_visitors_30d,
+        (SELECT COUNT(*)::int FROM clipora_site_analytics_events WHERE created_at>=NOW()-INTERVAL '30 days') AS page_views_30d,
+        (SELECT COUNT(DISTINCT visitor_hash)::int FROM clipora_site_analytics_events WHERE created_at>=NOW()-INTERVAL '30 days') AS unique_visitors_30d,
+        (SELECT COUNT(*)::int FROM linktree_analytics_events WHERE event_type='page_view' AND created_at>=NOW()-INTERVAL '30 days') AS profile_page_views_30d,
         (SELECT COUNT(*)::int FROM linktree_analytics_events WHERE event_type='link_click' AND created_at>=NOW()-INTERVAL '30 days') AS link_clicks_30d,
         (SELECT COUNT(*)::int FROM clipora_subscriptions WHERE status='active' AND current_period_end>NOW()) AS active_subscriptions,
         (SELECT COUNT(*)::int FROM clipora_plan_requests) AS total_requests,
@@ -818,17 +819,18 @@ router.get('/admin/billing',requireUser,requireAdmin,async(req,res)=>{
 
 // ---------- Owner analytics and account access management ----------
 router.get('/admin/analytics', requireUser, requireAdmin, async (req,res) => {
-  const requested=Number(req.query.days), days=[7,30,90].includes(requested)?requested:30;
+  const requested=Number(req.query.days),days=[7,30,90].includes(requested)?requested:30;
   try {
-    const [totals,series,topProfiles,referrers,devices,topLinks]=await Promise.all([
-      database().query("SELECT COUNT(*) FILTER (WHERE event_type='page_view')::int AS page_views, COUNT(DISTINCT visitor_hash) FILTER (WHERE event_type='page_view' AND visitor_hash IS NOT NULL)::int AS unique_visitors, COUNT(*) FILTER (WHERE event_type='link_click')::int AS link_clicks, (SELECT COUNT(*)::int FROM neon_auth.\"user\" WHERE \"createdAt\">=NOW()-($1::int*INTERVAL '1 day')) AS new_users FROM linktree_analytics_events WHERE created_at>=NOW()-($1::int*INTERVAL '1 day')",[days]),
-      database().query("WITH calendar AS (SELECT generate_series(CURRENT_DATE-($1::int-1),CURRENT_DATE,INTERVAL '1 day')::date AS day), signups AS (SELECT \"createdAt\"::date AS day,COUNT(*)::int AS new_users FROM neon_auth.\"user\" WHERE \"createdAt\">=CURRENT_DATE-($1::int-1) GROUP BY \"createdAt\"::date) SELECT c.day,COUNT(e.id) FILTER (WHERE e.event_type='page_view')::int AS page_views,COUNT(DISTINCT e.visitor_hash) FILTER (WHERE e.event_type='page_view' AND e.visitor_hash IS NOT NULL)::int AS unique_visitors,COUNT(e.id) FILTER (WHERE e.event_type='link_click')::int AS link_clicks,COALESCE(s.new_users,0)::int AS new_users FROM calendar c LEFT JOIN linktree_analytics_events e ON e.created_at>=c.day::timestamptz AND e.created_at<(c.day+1)::timestamptz LEFT JOIN signups s ON s.day=c.day GROUP BY c.day,s.new_users ORDER BY c.day",[days]),
+    const [totals,series,topProfiles,referrers,devices,topLinks,topPages]=await Promise.all([
+      database().query("SELECT (SELECT COUNT(*)::int FROM clipora_site_analytics_events WHERE created_at>=NOW()-($1::int*INTERVAL '1 day')) AS site_page_views,(SELECT COUNT(DISTINCT visitor_hash)::int FROM clipora_site_analytics_events WHERE created_at>=NOW()-($1::int*INTERVAL '1 day')) AS site_unique_visitors,(SELECT COUNT(*)::int FROM linktree_analytics_events WHERE event_type='page_view' AND created_at>=NOW()-($1::int*INTERVAL '1 day')) AS profile_page_views,(SELECT COUNT(DISTINCT visitor_hash)::int FROM linktree_analytics_events WHERE event_type='page_view' AND visitor_hash IS NOT NULL AND created_at>=NOW()-($1::int*INTERVAL '1 day')) AS profile_unique_visitors,(SELECT COUNT(*)::int FROM linktree_analytics_events WHERE event_type='link_click' AND created_at>=NOW()-($1::int*INTERVAL '1 day')) AS profile_link_clicks,(SELECT COUNT(*)::int FROM neon_auth.\"user\" WHERE \"createdAt\">=NOW()-($1::int*INTERVAL '1 day')) AS new_users",[days]),
+      database().query("WITH calendar AS (SELECT generate_series(CURRENT_DATE-($1::int-1),CURRENT_DATE,INTERVAL '1 day')::date AS day), signups AS (SELECT \"createdAt\"::date AS day,COUNT(*)::int AS new_users FROM neon_auth.\"user\" WHERE \"createdAt\">=CURRENT_DATE-($1::int-1) GROUP BY \"createdAt\"::date) SELECT c.day,COUNT(e.id)::int AS site_page_views,COUNT(DISTINCT e.visitor_hash)::int AS site_unique_visitors,COALESCE(s.new_users,0)::int AS new_users FROM calendar c LEFT JOIN clipora_site_analytics_events e ON e.created_at>=c.day::timestamptz AND e.created_at<(c.day+1)::timestamptz LEFT JOIN signups s ON s.day=c.day GROUP BY c.day,s.new_users ORDER BY c.day",[days]),
       database().query("SELECT p.username,p.display_name,COUNT(e.id) FILTER (WHERE e.event_type='page_view')::int AS page_views,COUNT(DISTINCT e.visitor_hash) FILTER (WHERE e.event_type='page_view' AND e.visitor_hash IS NOT NULL)::int AS unique_visitors,COUNT(e.id) FILTER (WHERE e.event_type='link_click')::int AS link_clicks FROM linktree_profiles p JOIN linktree_analytics_events e ON e.profile_id=p.id WHERE e.created_at>=NOW()-($1::int*INTERVAL '1 day') GROUP BY p.id ORDER BY page_views DESC,link_clicks DESC LIMIT 10",[days]),
-      database().query("SELECT COALESCE(NULLIF(referrer_host,''),'Direct / no referrer') AS source,COUNT(*)::int AS visits FROM linktree_analytics_events WHERE event_type='page_view' AND created_at>=NOW()-($1::int*INTERVAL '1 day') GROUP BY COALESCE(NULLIF(referrer_host,''),'Direct / no referrer') ORDER BY visits DESC LIMIT 10",[days]),
-      database().query("SELECT COALESCE(NULLIF(device_type,''),'unknown') AS device,COUNT(*)::int AS visits FROM linktree_analytics_events WHERE event_type='page_view' AND created_at>=NOW()-($1::int*INTERVAL '1 day') GROUP BY COALESCE(NULLIF(device_type,''),'unknown') ORDER BY visits DESC",[days]),
-      database().query("SELECT p.username,l.title,COUNT(*)::int AS clicks FROM linktree_analytics_events e JOIN linktree_links l ON l.id=e.link_id JOIN linktree_profiles p ON p.id=e.profile_id WHERE e.event_type='link_click' AND e.created_at>=NOW()-($1::int*INTERVAL '1 day') GROUP BY p.username,l.id ORDER BY clicks DESC LIMIT 10",[days])
+      database().query("SELECT COALESCE(NULLIF(referrer_host,''),'Direct / no referrer') AS source,COUNT(*)::int AS visits FROM clipora_site_analytics_events WHERE created_at>=NOW()-($1::int*INTERVAL '1 day') GROUP BY COALESCE(NULLIF(referrer_host,''),'Direct / no referrer') ORDER BY visits DESC LIMIT 10",[days]),
+      database().query("SELECT COALESCE(NULLIF(device_type,''),'unknown') AS device,COUNT(*)::int AS visits FROM clipora_site_analytics_events WHERE created_at>=NOW()-($1::int*INTERVAL '1 day') GROUP BY COALESCE(NULLIF(device_type,''),'unknown') ORDER BY visits DESC",[days]),
+      database().query("SELECT p.username,l.title,COUNT(*)::int AS clicks FROM linktree_analytics_events e JOIN linktree_links l ON l.id=e.link_id JOIN linktree_profiles p ON p.id=e.profile_id WHERE e.event_type='link_click' AND e.created_at>=NOW()-($1::int*INTERVAL '1 day') GROUP BY p.username,l.id ORDER BY clicks DESC LIMIT 10",[days]),
+      database().query("SELECT path,COUNT(*)::int AS page_views,COUNT(DISTINCT visitor_hash)::int AS unique_visitors FROM clipora_site_analytics_events WHERE created_at>=NOW()-($1::int*INTERVAL '1 day') GROUP BY path ORDER BY page_views DESC LIMIT 10",[days])
     ]);
-    return res.json({days,totals:totals.rows[0],series:series.rows,top_profiles:topProfiles.rows,referrers:referrers.rows,devices:devices.rows,top_links:topLinks.rows});
+    return res.json({days,totals:totals.rows[0],series:series.rows,top_profiles:topProfiles.rows,referrers:referrers.rows,devices:devices.rows,top_links:topLinks.rows,top_pages:topPages.rows});
   } catch(error) {
     console.error('Admin analytics:',error.message);
     return res.status(503).json({error:'Could not load site analytics.'});
@@ -898,5 +900,15 @@ router.delete('/admin/users/:id/plan', requireUser, requireAdmin, async (req,res
     return res.status(503).json({error:'Could not revoke this plan. No access changes were saved.'});
   } finally {client.release();}
 });
+
+
+router.recordSitePageView = async (req,path) => {
+  const allowed=new Set(['/','/about','/linktree','/plans','/business','/u/:username']);
+  if(!allowed.has(path))return;
+  await database().query(
+    'INSERT INTO clipora_site_analytics_events(path,visitor_hash,referrer_host,device_type) VALUES($1,$2,$3,$4)',
+    [path,visitorHash(req),referrerHost(req),deviceType(req)]
+  );
+};
 
 module.exports = router;
